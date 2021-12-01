@@ -3,39 +3,20 @@
 
 namespace ThreadSlinger2 {
 
-//////////////////////////// T2T_CONTAINER ////////////////////////////
-
-
-__t2t_container :: __t2t_container(int _container_size)
-{
-    container_size = _container_size;
-}
-
-void *__t2t_container :: operator new(size_t ignore_sz, int real_size)
-{
-    printf("new t2t_container of size %d\n", real_size);
-    return malloc(real_size + sizeof(__t2t_container));
-}
-
-void __t2t_container :: operator delete(void *ptr)
-{
-    __t2t_container * c = (__t2t_container *) ptr;
-    printf("deleting t2t_container of size %d\n",
-           c->container_size);
-    free(ptr);
-}
-
 //////////////////////////// T2T_QUEUE ////////////////////////////
 
 __t2t_queue :: __t2t_queue(pthread_mutexattr_t *pmattr,
-                           pthread_condattr_t *pcattr,
-                           clockid_t  _clk)
+                           pthread_condattr_t *pcattr)
 {
     pthread_mutex_init(&mutex, pmattr);
     pthread_cond_init(&cond, pcattr);
-    clk_id = _clk;
+    if (pcattr)
+        pthread_condattr_getclock(pcattr, &clk_id);
+    else
+        // the default condattr clock appears to be REALTIME
+        clk_id = CLOCK_REALTIME;
     buffers.init();
-    waiting = false;
+    waiting_cond = NULL;
 }
 
 __t2t_queue :: ~__t2t_queue(void)
@@ -56,7 +37,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
         // wait forever
         while (buffers.empty())
         {
-            waiting = true;
+            waiting_cond = &cond;
             pthread_cond_wait(&cond, &mutex);
         }
     }
@@ -74,6 +55,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
         __t2t_timespec  ts;
         while (buffers.empty())
         {
+            waiting_cond = &cond;
             if (first)
             {
                 __t2t_timespec t(wait_ms);
@@ -90,6 +72,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
         }
     }
     h = buffers.__t2t_get_next();
+    h->ok();
     if (!_validate(h))
         printf("_dequeue VALIDATION FAIL\n");
     h->remove();
@@ -97,8 +80,85 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
     return h;
 }
 
+//static
+__t2t_buffer_hdr * __t2t_queue :: _dequeue_multi(int num_qs,
+                                                 __t2t_queue **qs,
+                                                 int *which_q,
+                                                 int wait_ms)
+{
+    __t2t_buffer_hdr * h = NULL;
+    __t2t_queue * q0 = qs[0];
+    int qind = -1;
+    bool first = true;
+    __t2t_timespec  ts;
+
+    for (int ind = 0; ind < num_qs; ind++)
+    {
+        __t2t_queue * q = qs[ind];
+        q->lock();
+        q->waiting_cond = &q0->cond;
+        q->unlock();
+    }
+
+    do {
+        for (int ind = 0; ind < num_qs; ind++)
+        {
+            __t2t_queue * q = qs[ind];
+            q->lock();
+            if (q->buffers.empty() == false)
+            {
+                h = q->buffers.__t2t_get_next();
+                if (!q->_validate(h))
+                    printf("_dequeue_multi VALIDATION FAIL\n");
+                h->remove();
+                qind = ind;
+            }
+            q->unlock();
+        }
+        if (h)
+            break;
+        if (wait_ms == 0)
+            break;
+        else if (wait_ms < 0)
+        {
+            q0->lock();
+            pthread_cond_wait(&q0->cond, &q0->mutex);
+            q0->unlock();
+        }
+        else // wait_ms > 0
+        {
+            if (first)
+            {
+                __t2t_timespec t(wait_ms);
+                ts.getNow(q0->clk_id);
+                ts += t;
+                first = false;
+            }
+            q0->lock();
+            int ret = pthread_cond_timedwait(&q0->cond,
+                                             &q0->mutex,
+                                             &ts);
+            q0->unlock();
+            if (ret != 0)
+                break;
+        }
+    } while (h == NULL);
+
+    for (int ind = 0; ind < num_qs; ind++)
+    {
+        __t2t_queue * q = qs[ind];
+        q->lock();
+        q->waiting_cond = NULL;
+        q->unlock();
+    }
+    if (which_q)
+        *which_q = qind;
+    return h;
+}
+
 void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
 {
+    h->ok();
     if (h->__t2t_list != NULL)
     {
         printf("_enqueue ALREADY ON A LIST\n");
@@ -106,100 +166,28 @@ void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
     }
     lock();
     buffers.add(h);
-    bool signal = waiting;
-    waiting = false;
+    pthread_cond_t *pcond = waiting_cond;
+    waiting_cond = NULL;
     unlock();
-    if (signal)
-        pthread_cond_signal(&cond);
+    if (pcond)
+        pthread_cond_signal(pcond);
 }
 
-//////////////////////////// T2T_POOL ////////////////////////////
-
-__t2t_pool :: __t2t_pool(int _buffer_size,
-                         int _num_bufs_init,
-                         int _bufs_to_add_when_growing,
-                         pthread_mutexattr_t *pmattr,
-                         pthread_condattr_t *pcattr,
-                         clockid_t  _clk)
-    : q(pmattr,pcattr,_clk)
+void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
 {
-    stats.init();
-    stats.buffer_size = _buffer_size;
-    bufs_to_add_when_growing = _bufs_to_add_when_growing;
-    _add_bufs(_num_bufs_init);
-}
-
-__t2t_pool :: ~__t2t_pool(void)
-{
-    // the container_pool list deletes the
-    // sp's which frees the containers
-}
-
-void __t2t_pool :: _add_bufs(int num_bufs)
-{
-    if (num_bufs <= 0)
+    h->ok();
+    if (h->__t2t_list != NULL)
+    {
+        printf("_enqueue ALREADY ON A LIST\n");
         return;
-
-    int real_buffer_size = stats.buffer_size + sizeof(__t2t_buffer_hdr);
-    int container_size = num_bufs * real_buffer_size;
-    __t2t_container * c;
-    c = new(container_size) __t2t_container(container_size);
-    container_pool.push_back(__t2t_container::up(c));
-
-    uint8_t * ptr = (uint8_t *) c->data;
-
-    for (int ind = 0; ind < num_bufs; ind++)
-    {
-        __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) ptr;
-        h->init(stats.buffer_size, container_size);
-        stats.total_buffers ++;
-        q._enqueue(h);
-        ptr += real_buffer_size;
     }
-}
-
-// if grow=true, ignore wait_ms; if grow=false,
-// -1 : wait forever, 0 : dont wait, >0 wait for some mS
-__t2t_buffer_hdr * __t2t_pool :: _alloc(int wait_ms, bool grow /*= false*/)
-{
-    __t2t_buffer_hdr * h = NULL;
-    if (grow)
-    {
-        h = q._dequeue(0);
-        if (h == NULL)
-        {
-            _add_bufs(bufs_to_add_when_growing);
-            stats.grows ++;
-            h = q._dequeue(0);
-        }
-    }
-    else
-    {
-        h = q._dequeue(wait_ms);
-    }
-    if (h == NULL)
-    {
-        stats.alloc_fails ++;
-        return NULL;
-    }
-    h->inuse = true;
-    stats.buffers_in_use++;
-    return h;
-}
-
-void __t2t_pool :: _release(__t2t_buffer_hdr *h)
-{
-    if (h->inuse == false)
-    {
-        printf("DOUBLEFREE\n");
-        stats.double_frees ++;
-    }
-    else
-    {
-        h->inuse = false;
-        q._enqueue(h);
-        stats.buffers_in_use --;
-    }
+    lock();
+    buffers.add_tail(h);
+    pthread_cond_t *pcond = waiting_cond;
+    waiting_cond = NULL;
+    unlock();
+    if (pcond)
+        pthread_cond_signal(pcond);
 }
 
 }; // namespace ThreadSlinger2
