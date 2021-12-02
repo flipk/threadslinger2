@@ -3,6 +3,125 @@
 
 namespace ThreadSlinger2 {
 
+//////////////////////////// T2T_CONTAINER ////////////////////////////
+
+struct __t2t_container
+{
+    // this is required by unique_ptr, because it has
+    // a static_assert(sizeof(_Tp)>0) in it.....
+    int dummy;
+    uint64_t data[0]; // forces entire struct to 8 byte alignment
+    __t2t_container(void)
+    {
+        dummy = 0;
+    }
+    void *operator new(size_t ignore_sz, int real_size)
+    {
+        return malloc(real_size + sizeof(__t2t_container));
+    }
+    void  operator delete(void *ptr)
+    {
+        free(ptr);
+    }
+
+    __T2T_EVIL_CONSTRUCTORS(__t2t_container);
+    __T2T_EVIL_NEW(__t2t_container);
+};
+
+//////////////////////////// T2T_POOL ////////////////////////////
+
+__t2t_pool :: __t2t_pool(int buffer_size,
+                         int _num_bufs_init,
+                         int _bufs_to_add_when_growing,
+                         pthread_mutexattr_t *pmattr,
+                         pthread_condattr_t *pcattr)
+    : stats(buffer_size), q(pmattr, pcattr)
+{
+    bufs_to_add_when_growing = _bufs_to_add_when_growing;
+    add_bufs(_num_bufs_init);
+}
+
+//virtual
+__t2t_pool :: ~__t2t_pool(void)
+{
+}
+
+void __t2t_pool :: add_bufs(int num_bufs)
+{
+    if (num_bufs <= 0)
+        return;
+    int real_buffer_size = stats.buffer_size + sizeof(__t2t_buffer_hdr);
+    int container_size = num_bufs * real_buffer_size;
+    __t2t_container * c = new(container_size) __t2t_container;
+    container_pool.push_back(std::unique_ptr<__t2t_container>(c));
+    uint8_t * ptr = (uint8_t *) c->data;
+    for (int ind = 0; ind < num_bufs; ind++)
+    {
+        __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) ptr;
+        h->init();
+        stats.total_buffers ++;
+        q._enqueue(h);
+        ptr += real_buffer_size;
+    }
+}
+
+// if grow=true, ignore wait_ms; if grow=false,
+// -1 : wait forever, 0 : dont wait, >0 wait for some mS
+void * __t2t_pool :: alloc(int wait_ms, bool grow /*= false*/)
+{
+    __t2t_buffer_hdr * h = NULL;
+    if (grow)
+    {
+        h = q._dequeue(0);
+        if (h == NULL)
+        {
+            add_bufs(bufs_to_add_when_growing);
+            stats.grows ++;
+            h = q._dequeue(0);
+        }
+    }
+    else
+    {
+        h = q._dequeue(wait_ms);
+    }
+    if (h == NULL)
+    {
+        stats.alloc_fails ++;
+        return NULL;
+    }
+    h->inuse = true;
+    stats.buffers_in_use++;
+    h++;
+    return h;
+}
+
+void __t2t_pool :: release(void * ptr)
+{
+    __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) ptr;
+    h--;
+    if (h->list != NULL)
+    {
+        printf("__t2t_pool::release: ITEM ALREADY ON LIST?\n");
+        exit(1);
+    }
+    if (h->inuse == false)
+    {
+        printf("__t2t_pool::release: DOUBLE FREE\n");
+        stats.double_frees ++;
+    }
+    else
+    {
+        h->inuse = false;
+        q._enqueue(h);
+        stats.buffers_in_use --;
+    }
+}
+
+void __t2t_pool :: get_stats(t2t_pool_stats &_stats) const
+{
+    _stats = stats;
+}
+
 //////////////////////////// T2T_QUEUE ////////////////////////////
 
 __t2t_queue :: __t2t_queue(pthread_mutexattr_t *pmattr,
@@ -32,6 +151,13 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
 {
     __t2t_buffer_hdr * h = NULL;
     lock();
+    if (waiting_cond != NULL)
+    {
+        printf("__t2t_queue::_dequeue:  THIS API DOES NOT SUPPORT "
+               "MORE THAN ONE THREAD DEQUEUING FROM THE SAME QUEUE "
+               "AT THE SAME TIME SO DONT DO THAT\n");
+        return NULL;
+    }
     if (wait_ms < 0)
     {
         // wait forever
@@ -71,10 +197,11 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
             }
         }
     }
-    h = buffers.__t2t_get_next();
+    h = buffers.get_head();
     h->ok();
     if (!_validate(h))
-        printf("_dequeue VALIDATION FAIL\n");
+        printf("__t2t_queue::_dequeue: dequeued message claims it "
+               "wasn't actually on this list!\n");
     h->remove();
     unlock();
     return h;
@@ -96,20 +223,30 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue_multi(int num_qs,
     {
         __t2t_queue * q = qs[ind];
         q->lock();
+        if (q->waiting_cond != NULL)
+        {
+            printf("__t2t_queue::_dequeue:  THIS API DOES NOT SUPPORT "
+                   "MORE THAN ONE THREAD DEQUEUING FROM THE SAME QUEUE "
+                   "AT THE SAME TIME SO DONT DO THAT\n");
+            // dont bail, just overwrite cuz its busted anyway.
+        }
         q->waiting_cond = &q0->cond;
         q->unlock();
     }
 
     do {
-        for (int ind = 0; ind < num_qs; ind++)
+        for (int ind = 0; h == NULL && ind < num_qs; ind++)
         {
             __t2t_queue * q = qs[ind];
             q->lock();
             if (q->buffers.empty() == false)
             {
-                h = q->buffers.__t2t_get_next();
+                h = q->buffers.get_head();
                 if (!q->_validate(h))
-                    printf("_dequeue_multi VALIDATION FAIL\n");
+                    printf(
+                        "__t2t_queue::_dequeue_multi: dequeued "
+                        "message claims it wasn't actually "
+                        "on this list!\n");
                 h->remove();
                 qind = ind;
             }
@@ -159,13 +296,13 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue_multi(int num_qs,
 void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
 {
     h->ok();
-    if (h->__t2t_list != NULL)
+    if (h->list != NULL)
     {
-        printf("_enqueue ALREADY ON A LIST\n");
+        printf("__t2t_queue::_enqueue: ALREADY ON A LIST\n");
         return;
     }
     lock();
-    buffers.add(h);
+    buffers.add_head(h);
     pthread_cond_t *pcond = waiting_cond;
     waiting_cond = NULL;
     unlock();
@@ -176,9 +313,9 @@ void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
 void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
 {
     h->ok();
-    if (h->__t2t_list != NULL)
+    if (h->list != NULL)
     {
-        printf("_enqueue ALREADY ON A LIST\n");
+        printf("__t2t_queue::_enqueue: ALREADY ON A LIST\n");
         return;
     }
     lock();

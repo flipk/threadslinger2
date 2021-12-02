@@ -1,11 +1,11 @@
 #if 0
 set -e -x
 
-incs="-I../libpfkutil"
+incs=""
 srcs="threadslinger2.cc threadslinger2_test.cc"
-libs="../libpfkutil/signal_backtrace.cc ../libpfkutil/dll3.cc -lpthread"
+libs="-lpthread"
 defs=""
-cflags="-O0 -g3"
+cflags="-O3"
 lflags=""
 
 g++ $cflags $lflags $defs $incs $srcs $libs  -o t
@@ -21,7 +21,8 @@ exit 0
 
 using namespace std;
 
-class my_message : public ThreadSlinger2::t2t_message_base<my_message>
+class my_message
+    : public ThreadSlinger2::t2t_message_base<my_message,int,int>
 {
 public:
     int a;
@@ -56,6 +57,7 @@ void *reader_thread(void *arg)
         my_message * m = NULL;
         int which_q = -1;
         printf("READER entering dequeue(2000)\n");
+
 //      m = q->dequeue(2000);
         m = my_message::queue_t::dequeue_multi(1, qs,
                                                &which_q, 2000);
@@ -80,13 +82,10 @@ int main(int argc, char ** argv)
 
     pthread_mutexattr_init(&mattr);
     pthread_condattr_init(&cattr);
-//    pthread_condattr_setclock(&cattr, CLOCK_REALTIME);
     pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);
 
-    // create a pool of my_message, prepopulated
-    // with 1 message, and if grow=true, grows ten at a time.
-    my_message::pool_t * mypool =
-        new my_message::pool_t(2,10,&mattr,&cattr);
+    // prepopulate with 2 buffers, add 10 on grows.
+    my_message::pool_t mypool(2,10,&mattr,&cattr);
 
     my_message::queue_t    q(&mattr,&cattr);
 
@@ -95,11 +94,11 @@ int main(int argc, char ** argv)
 
     my_message * m;
 
-    printstats(mypool, "before first alloc");
+    printstats(&mypool, "before first alloc");
 
     // this should succeed.
     printf("attempting first alloc, should succeed\n");
-    m = new(mypool) my_message(1,2);
+    m = my_message::get(&mypool,-1, 1,2);
     if (m)
     {
         printf("enqueuing a message NOW\n");
@@ -108,10 +107,10 @@ int main(int argc, char ** argv)
     else
         printf("FAILED\n");
 
-    printstats(mypool, "after first alloc");
+    printstats(&mypool, "after first alloc");
 
     printf("attempting second alloc\n");
-    m = new(mypool,1000) my_message(3,4);
+    m = my_message::get(&mypool,1000, 3,4);
     if (m)
     {
         printf("enqueuing a message NOW\n");
@@ -120,10 +119,10 @@ int main(int argc, char ** argv)
     else
         printf("FAILED\n");
 
-    printstats(mypool, "after second alloc");
+    printstats(&mypool, "after second alloc");
 
 
-
+    // now that two enqueues have been done, start the reader.
     pthread_t id;
     pthread_attr_t       attr;
     pthread_attr_init   (&attr);
@@ -135,7 +134,7 @@ int main(int argc, char ** argv)
 
     // this should succeed.
     printf("attempting third alloc\n");
-    m = new(mypool,T2T_GROW) my_message(5,6);
+    m = my_message::get(&mypool,T2T_GROW, 5,6);
     if (m)
     {
         printf("enqueuing a message NOW\n");
@@ -144,7 +143,7 @@ int main(int argc, char ** argv)
     else
         printf("FAILED\n");
 
-    printstats(mypool, "after third alloc");
+    printstats(&mypool, "after third alloc");
 
     printf("sleeping 3\n");
     sleep(3);
@@ -154,10 +153,6 @@ int main(int argc, char ** argv)
     die_already =true;
     pthread_join(id, NULL);
     printf("READER is DEAD\n");
-
-    printf("deleting pool\n");
-    delete mypool;
-    printf("delete pool done\n");
 
     return 0;
 }
