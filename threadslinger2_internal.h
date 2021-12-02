@@ -170,6 +170,8 @@ public:
 //////////////////////////// T2T_POOL ////////////////////////////
 
 struct __t2t_container; // forward
+
+/** base class for all t2t_pool template objects. */
 class __t2t_pool
 {
 protected:
@@ -184,11 +186,14 @@ protected:
                pthread_condattr_t *pcattr);
     virtual ~__t2t_pool(void);
 public:
+    /** add more buffers to this pool.
+     * \param num_bufs  the number of buffers to add to the pool. */
     void add_bufs(int num_bufs);
     // if grow=true, ignore wait_ms; if grow=false,
     // -1 : wait forever, 0 : dont wait, >0 wait for some mS
     void * alloc(int wait_ms, bool grow = false);
     void release(void * ptr);
+    /** retrieve statistics about this pool */
     void get_stats(t2t_pool_stats &_stats) const;
 
     __T2T_EVIL_CONSTRUCTORS(__t2t_pool);
