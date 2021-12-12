@@ -19,8 +19,8 @@ struct __t2t_links
     {
         if (magic == LINKS_MAGIC)
             return true;
-        printf("__t2t_links::ok: T2T LINKS CORRUPT SOMEHOW\n");
-        exit(1);
+        TS2_ASSERT(T2T_LINKS_MAGIC_CORRUPT,true);
+        return false;
     }
     void init(void)
     {
@@ -38,8 +38,7 @@ struct __t2t_links
         ok();
         if (item->list != NULL)
         {
-            printf("__t2t_links::add_head:  ALREADY ON LIST\n");
-            exit(1);
+            TS2_ASSERT(T2T_LINKS_ADD_ALREADY_ON_LIST,true);
         }
         item->next = next;
         item->prev = this;
@@ -53,8 +52,7 @@ struct __t2t_links
         ok();
         if (item->list != NULL)
         {
-            printf("__t2t_links::add_tail:  ALREADY ON LIST\n");
-            exit(1);
+            TS2_ASSERT(T2T_LINKS_ADD_ALREADY_ON_LIST,true);
         }
         item->next = this;
         item->prev = prev;
@@ -71,8 +69,7 @@ struct __t2t_links
         ok();
         if (list == NULL)
         {
-            printf("__t2t_links::remove:  NOT ON LIST\n");
-            exit(1);
+            TS2_ASSERT(T2T_LINKS_REMOVE_NOT_ON_LIST,true);
         }
         list = NULL;
         next->prev = prev;
@@ -137,7 +134,6 @@ class __t2t_queue
     clockid_t        clk_id;
     pthread_cond_t * waiting_cond;
     __t2t_buffer_hdr  buffers;
-//    __t2t_links<__t2t_buffer_hdr>  buffers;
     void   lock(void) { pthread_mutex_lock  (&mutex); }
     void unlock(void) { pthread_mutex_unlock(&mutex); }
 public:

@@ -3,6 +3,20 @@
 
 namespace ThreadSlinger2 {
 
+static void default_ts2_assert_handler(ts2_error_t e,
+                                       bool fatal,
+                                       const char *filename,
+                                       int lineno)
+{
+    fprintf(stderr, "\n\nERROR: ThreadSlinger2 ASSERTION %d at %s:%d\n\n",
+            filename, lineno);
+    if (fatal)
+        // if you dont like this exiting, CHANGE IT
+        exit(1);
+}
+
+ts2_assert_handler_t ts2_assert_handler = &default_ts2_assert_handler;
+
 //////////////////////////// T2T_CONTAINER ////////////////////////////
 
 struct __t2t_container
@@ -101,12 +115,11 @@ void __t2t_pool :: release(void * ptr)
     h--;
     if (h->list != NULL)
     {
-        printf("__t2t_pool::release: ITEM ALREADY ON LIST?\n");
-        exit(1);
+        TS2_ASSERT(T2T_POOL_RELEASE_ALREADY_ON_LIST,true);
     }
     if (h->inuse == false)
     {
-        printf("__t2t_pool::release: DOUBLE FREE\n");
+        TS2_ASSERT(DOUBLE_FREE,false);
         stats.double_frees ++;
     }
     else
@@ -153,9 +166,8 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
     lock();
     if (waiting_cond != NULL)
     {
-        printf("__t2t_queue::_dequeue:  THIS API DOES NOT SUPPORT "
-               "MORE THAN ONE THREAD DEQUEUING FROM THE SAME QUEUE "
-               "AT THE SAME TIME SO DONT DO THAT\n");
+        TS2_ASSERT(T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE,false);
+        unlock();
         return NULL;
     }
     if (wait_ms < 0)
@@ -190,6 +202,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
                 first = false;
             }
             int ret = pthread_cond_timedwait(&cond, &mutex, &ts);
+            waiting_cond = NULL;
             if (ret != 0)
             {
                 unlock();
@@ -200,8 +213,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
     h = buffers.get_head();
     h->ok();
     if (!_validate(h))
-        printf("__t2t_queue::_dequeue: dequeued message claims it "
-               "wasn't actually on this list!\n");
+        TS2_ASSERT(T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
     h->remove();
     unlock();
     return h;
@@ -225,9 +237,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue_multi(int num_qs,
         q->lock();
         if (q->waiting_cond != NULL)
         {
-            printf("__t2t_queue::_dequeue:  THIS API DOES NOT SUPPORT "
-                   "MORE THAN ONE THREAD DEQUEUING FROM THE SAME QUEUE "
-                   "AT THE SAME TIME SO DONT DO THAT\n");
+            TS2_ASSERT(T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE,false);
             // dont bail, just overwrite cuz its busted anyway.
         }
         q->waiting_cond = &q0->cond;
@@ -243,10 +253,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue_multi(int num_qs,
             {
                 h = q->buffers.get_head();
                 if (!q->_validate(h))
-                    printf(
-                        "__t2t_queue::_dequeue_multi: dequeued "
-                        "message claims it wasn't actually "
-                        "on this list!\n");
+                    TS2_ASSERT(T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
                 h->remove();
                 qind = ind;
             }
@@ -298,7 +305,7 @@ void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
     h->ok();
     if (h->list != NULL)
     {
-        printf("__t2t_queue::_enqueue: ALREADY ON A LIST\n");
+        TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return;
     }
     lock();
@@ -315,7 +322,7 @@ void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
     h->ok();
     if (h->list != NULL)
     {
-        printf("__t2t_queue::_enqueue: ALREADY ON A LIST\n");
+        TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return;
     }
     lock();
