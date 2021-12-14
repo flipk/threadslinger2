@@ -1,9 +1,151 @@
 
 #ifndef __T2T_INCLUDE_INTERNAL__
+
 #error "This file is meant to be included only by threadslinger2.h"
-#else
+
+#elif __T2T_INCLUDE_INTERNAL__ == 1
 
 // hopefully we're already inside namespace ThreadSlinger2
+
+//////////////////////////// SAFETY STUFF ////////////////////////////
+
+#define __T2T_EVIL_CONSTRUCTORS(T)              \
+    private:                                    \
+    T(T&&) = delete;                            \
+    T(const T&) = delete;                       \
+    T &operator=(const T&) = delete;            \
+    T &operator=(T&) = delete
+
+#define __T2T_EVIL_NEW(T)                       \
+    static void * operator new(size_t sz) = delete
+
+#define __T2T_EVIL_DEFAULT_CONSTRUCTOR(T)       \
+    private:                                    \
+    T(void) = delete;
+
+//////////////////////////// TRAITS STUFF ////////////////////////////
+
+template <typename... Ts>
+struct largest_type;
+
+template <typename T>
+struct largest_type<T>
+{
+    using type = T;
+    static const int size = sizeof(type);
+};
+
+template <typename T, typename U, typename... Ts>
+struct largest_type<T, U, Ts...>
+{
+    using type =
+        typename largest_type<
+        typename std::conditional<
+            (sizeof(U) <= sizeof(T)), T, U
+            >::type, Ts...
+        >::type;
+    static const int size = sizeof(type);
+};
+
+//////////////////////////// MY SHARED_PTR ////////////////////////////
+
+template<class T>
+t2t_shared_ptr<T> :: t2t_shared_ptr(T * _ptr /*= NULL*/)
+    : ptr(NULL)
+{
+    ptr = _ptr;
+    if (ptr)
+        ptr->ref();
+}
+
+template<class T>
+t2t_shared_ptr<T> :: t2t_shared_ptr(const t2t_shared_ptr<T> &other)
+{
+    ptr = other.ptr;
+    if (ptr)
+        ptr->ref();
+}
+
+template<class T>
+t2t_shared_ptr<T> :: t2t_shared_ptr(t2t_shared_ptr<T> &&other)
+{
+    ptr = other.ptr;
+    other.ptr = NULL;
+}
+
+template<class T>
+t2t_shared_ptr<T> :: ~t2t_shared_ptr(void)
+{
+    if (ptr)
+        ptr->deref();
+}
+
+template<class T>
+void t2t_shared_ptr<T> :: set(T * _ptr)
+{
+    if (ptr)
+        ptr->deref();
+    ptr = _ptr;
+    if (ptr)
+        ptr->ref();
+}
+
+template<class T>
+void t2t_shared_ptr<T> :: give(T * _ptr)
+{
+    if (ptr)
+        ptr->deref();
+    ptr = _ptr;
+}
+
+template<class T>
+T * t2t_shared_ptr<T> :: take(void)
+{
+    T * ret = ptr;
+    ptr = NULL;
+    return ret;
+}
+
+template<class T>
+template <class U>
+bool t2t_shared_ptr<T> :: cast(const t2t_shared_ptr<U> &u)
+{
+    if (!u)
+        return false;
+    T * ret = dynamic_cast<T*>(*u);
+    if (ret == NULL)
+        return false;
+    set(ret);
+    return true;
+}
+
+template<class T>
+t2t_shared_ptr<T> &
+t2t_shared_ptr<T> :: operator=(const t2t_shared_ptr<T> &other)
+{
+    if (ptr)
+        ptr->deref();
+    ptr = other.ptr;
+    if (ptr)
+        ptr->ref();
+    return *this;
+}
+
+template<class T>
+t2t_shared_ptr<T> &
+t2t_shared_ptr<T> :: operator=(t2t_shared_ptr<T> &&other)
+{
+    if (ptr)
+        ptr->deref();
+    ptr = other.ptr;
+    other.ptr = NULL;
+    return *this;
+}
+
+//////////////////////////// ERROR HANDLING ////////////////////////////
+
+#define TS2_ASSERT(err,fatal) \
+    ts2_assert_handler(err,fatal, __FILE__, __LINE__)
 
 //////////////////////////// T2T_LINKS ////////////////////////////
 
@@ -96,7 +238,8 @@ struct __t2t_buffer_hdr : public __t2t_links<__t2t_buffer_hdr>
     }
 };
 
-__T2T_CHECK_COPYABLE(__t2t_buffer_hdr);
+static_assert(std::is_trivial<__t2t_buffer_hdr>::value == true,
+              "class __t2t_buffer_hdr must always be trivial");
 
 //////////////////////////// T2T_TIMESPEC ////////////////////////////
 
@@ -195,6 +338,107 @@ public:
     __T2T_EVIL_CONSTRUCTORS(__t2t_pool);
     __T2T_EVIL_DEFAULT_CONSTRUCTOR(__t2t_pool);
 };
+
+//////////////////////////////////////////////////////////////////
+
+#elif __T2T_INCLUDE_INTERNAL__ == 2
+
+//////////////////////////// T2T_QUEUE ////////////////////////////
+
+template <class BaseT>
+t2t_queue<BaseT> :: t2t_queue(pthread_mutexattr_t *pmattr /*= NULL*/,
+                              pthread_condattr_t  *pcattr /*= NULL*/)
+    : q(pmattr,pcattr)
+{
+}
+
+template <class BaseT>
+void t2t_queue<BaseT> :: enqueue(BaseT * msg)
+{
+    __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) msg;
+    h--;
+    h->ok();
+    q._enqueue_tail(h);
+}
+
+template <class BaseT>
+t2t_shared_ptr<BaseT>   t2t_queue<BaseT> :: dequeue(int wait_ms)
+{
+    t2t_shared_ptr<BaseT>  ret;
+    __t2t_buffer_hdr * h = q._dequeue(wait_ms);
+    if (h)
+    {
+        h++;
+        ret.give((BaseT*) h);
+    }
+    return ret;
+}
+
+template <class BaseT>
+// static class method
+t2t_shared_ptr<BaseT> t2t_queue<BaseT> :: dequeue_multi(
+    int num_queues,
+    t2t_queue<BaseT> **queues,
+    int *which_q,
+    int wait_ms)
+{
+    t2t_shared_ptr<BaseT>  ret;
+    __t2t_queue *qs[num_queues];
+    for (int ind = 0; ind < num_queues; ind++)
+        qs[ind] = &queues[ind]->q;
+    __t2t_buffer_hdr * h = __t2t_queue::_dequeue_multi(
+        num_queues, qs, which_q, wait_ms);
+    if (h)
+    {
+        h++;
+        ret.give((BaseT*) h);
+    }
+    return ret;
+}
+
+//////////////////////////// T2T_MESSAGE_BASE ////////////////////////////
+
+
+template <class BaseT, class... DerivedTs>
+template <class T, typename... ConstructorArgs>
+// static class method
+bool t2t_message_base<BaseT,DerivedTs...> :: get(
+    T ** ptr, pool_t *pool, int wait_ms,
+    ConstructorArgs&&... args)
+{
+    static_assert(std::is_base_of<BaseT, T>::value == true,
+                  "allocated type must be derived from base type");
+    static_assert(pool_t::buffer_size >= sizeof(T),
+                  "allocated type must fit in pool buffer size, please "
+                  "specify all message types in t2t_pool<> (and/or in "
+                  "t2t_message_base<> if you're using ::pool_t)");
+
+    T * t = new(pool,wait_ms,false)
+        T(std::forward<ConstructorArgs>(args)...);
+    *ptr = t;
+    return (t != NULL);
+}
+
+template <class BaseT, class... DerivedTs>
+template <class T, typename... ConstructorArgs>
+// static class method
+bool t2t_message_base<BaseT,DerivedTs...> :: get(
+    T ** ptr, pool_t *pool,
+    t2t_grow_flag grow,
+    ConstructorArgs&&... args)
+{
+    static_assert(std::is_base_of<BaseT, T>::value == true,
+                  "allocated type must be derived from base type");
+    static_assert(pool_t::buffer_size >= sizeof(T),
+                  "allocated type must fit in pool buffer size, please "
+                  "specify all message types in t2t_pool<> (and/or in "
+                  "t2t_message_base<> if you're using ::pool_t)");
+
+    T * t = new(pool,0,true)
+        T(std::forward<ConstructorArgs>(args)...);
+    *ptr = t;
+    return (t != NULL);
+}
 
 //////////////////////////////////////////////////////////////////
 

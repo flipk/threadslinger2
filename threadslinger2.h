@@ -16,31 +16,11 @@
 #include <atomic>
 #include <type_traits>
 
-//////////////////////////// SAFETY STUFF ////////////////////////////
-
-#define __T2T_EVIL_CONSTRUCTORS(T)              \
-    private:                                    \
-    T(T&&) = delete;                            \
-    T(const T&) = delete;                       \
-    T &operator=(const T&) = delete;            \
-    T &operator=(T&) = delete
-
-#define __T2T_EVIL_NEW(T)                       \
-    static void * operator new(size_t sz) = delete
-
-#define __T2T_EVIL_DEFAULT_CONSTRUCTOR(T)       \
-    private:                                    \
-    T(void) = delete;
-
-#define __T2T_CHECK_COPYABLE(T) \
-    static_assert(std::is_trivially_copyable<T>::value == 1, \
-                  "class " #T " must always be trivially copyable")
-
 /** ThreadSlinger2 namespace, encapsulates all data structures for this API
  */
 namespace ThreadSlinger2 {
 
-//////////////////////////// error handler ////////////////////////////
+//////////////////////////// ERROR HANDLING ////////////////////////////
 
 /** the list of error types passed to an
  * ts2_assert_handler_t assertion handler. */
@@ -68,55 +48,86 @@ typedef void (*ts2_assert_handler_t)(ts2_error_t e, bool fatal,
 /** a global variable holds a pointer to an assertion handler function. */
 extern ts2_assert_handler_t ts2_assert_handler;
 
-#define TS2_ASSERT(err,fatal) \
-    ts2_assert_handler(err,fatal, __FILE__, __LINE__)
-
-//////////////////////////// traits utility ////////////////////////////
-
-template <typename... Ts>
-struct largest_type;
-
-template <typename T>
-struct largest_type<T>
-{
-    using type = T;
-    static const int size = sizeof(type);
-};
-
-template <typename T, typename U, typename... Ts>
-struct largest_type<T, U, Ts...>
-{
-    using type =
-        typename largest_type<
-        typename std::conditional<
-            (sizeof(U) <= sizeof(T)), T, U
-            >::type, Ts...
-        >::type;
-    static const int size = sizeof(type);
-};
-
 //////////////////////////// T2T_POOL_STATS ////////////////////////////
 
 /** statistics for buffer pools */
 struct t2t_pool_stats {
+    t2t_pool_stats(int _buffer_size = 0);
+    void init(int _buffer_size);
+
     int buffer_size;      //!< sizeof each buffer in the pool
     int total_buffers;    //!< current size of the pool
     int buffers_in_use;   //!< how many of those buffers in use
     int alloc_fails;      //!< how many times alloc/get returned null
     int grows;            //!< how many times pool has been grown
     int double_frees;     //!< how many times free buffer freed again
-    void init(int _buffer_size) {
-        buffer_size = _buffer_size;
-        total_buffers = 0;
-        buffers_in_use = 0;
-        alloc_fails = 0;
-        grows = 0;
-        double_frees = 0;
-    }
-    t2t_pool_stats(int _buffer_size = 0) { init(_buffer_size); }
 };
 
-__T2T_CHECK_COPYABLE(t2t_pool_stats);
+//////////////////////////// MY SHARED_PTR ////////////////////////////
+
+/** t2t version of std::shared_ptr, used by t2t_queue
+ * \param T  the message class being shared.
+ *
+ * \note I recommend making an alias in every message class you
+ *    create, like "typedef ThreadSlinger2::t2t_shared_ptr<classname> sp".
+ *    See the example code.
+ */
+template <class T>
+struct t2t_shared_ptr {
+    /** constructor will ref() an obj passed to it, but can take NULL */
+    t2t_shared_ptr<T>(T * _ptr = NULL);
+
+    /** copy constructor will copy the pointer in the other object and
+     * will ref() the pointer. */
+    t2t_shared_ptr<T>(const t2t_shared_ptr<T> &other);
+
+    /** move constructor will remove the pointer from the source but
+     * will not change the refcounter */
+    t2t_shared_ptr<T>(t2t_shared_ptr<T> &&other);
+
+    /** dereferences the contained pointer, if there is one, and if this
+     * is the last reference, the object is destroyed / returned
+     * to whatever pool it came from. */
+    ~t2t_shared_ptr<T>(void);
+
+    /** overwrite a ptr in this obj with a new
+     * pointer, derefing the old ptr and refing
+     * the new pointer in the process. */
+    void set(T * _ptr);
+
+    /** access the pointer within, same as -> or * */
+    T * get(void) const { return ptr; }
+
+    /** give a pointer to this object without changing its refcount. */
+    void give(T * _ptr);
+
+    /** take a pointer out of this object
+     * without changing its refcount; after this call,
+     * this object now stores a NULL pointer (is empty). */
+    T * take(void);
+
+    /** do a dynamic cast of one type to another; returns false
+     * if dynamic_cast fails and leaves this object empty. */
+    template <class U> bool cast(const t2t_shared_ptr<U> &u);
+
+    /** assign, takes another ref() on the object */
+    t2t_shared_ptr<T> &operator=(const t2t_shared_ptr<T> &other);
+
+    /** move, useful for zero copy return */
+    t2t_shared_ptr<T> &operator=(t2t_shared_ptr<T> &&other);
+
+    /** useful for "if (sp)" to check if this obj has a pointer or not */
+    operator bool() const { return (ptr != NULL); }
+
+    /** access the pointer using "obj->" */
+    T * operator->(void) const { return ptr; }
+
+    /** access the pointer using "*obj" */
+    T * operator*(void) const { return ptr; }
+
+private:
+    T * ptr;
+};
 
 #define __T2T_INCLUDE_INTERNAL__ 1
 #include "threadslinger2_internal.h"
@@ -145,8 +156,7 @@ public:
              int _bufs_to_add_when_growing = 1,
              pthread_mutexattr_t *pmattr = NULL,
              pthread_condattr_t *pcattr = NULL)
-        : __t2t_pool(buffer_size,
-                     _num_bufs_init,
+        : __t2t_pool(buffer_size, _num_bufs_init,
                      _bufs_to_add_when_growing,
                      pmattr, pcattr) { }
     virtual ~t2t_pool(void) { }
@@ -175,19 +185,12 @@ public:
      *                take special note of
      *     pthread_condattr_setclock(pcattr, CLOCK_MONOTONIC).   */
     t2t_queue(pthread_mutexattr_t *pmattr = NULL,
-              pthread_condattr_t *pcattr = NULL)
-        : q(pmattr,pcattr) { }
+              pthread_condattr_t *pcattr = NULL);
     virtual ~t2t_queue(void) { }
     /** enqueue a message into this queue; the message must come
      *  from a pool of the same type. note the queue is a FIFO.
      * \param msg  pointer to a message to enqueue */
-    void enqueue(BaseT * msg)
-    {
-        __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) msg;
-        h--;
-        h->ok();
-        q._enqueue_tail(h);
-    }
+    void enqueue(BaseT * msg);
     /** dequeue a message from this queue in FIFO order.
      * \param wait_ms  how long to wait:
      *           <ul> <li> -1 : wait forever </li>
@@ -195,14 +198,8 @@ public:
      *                     return NULL immediately. </li>
      *                <li> >0 : wait for some milliseconds for a buffer
      *                     to become available, then give up </li> </ul> */
-    BaseT * dequeue(int wait_ms)
-    {
-        __t2t_buffer_hdr * h = q._dequeue(wait_ms);
-        if (h == NULL)
-            return NULL;
-        h++;
-        return (BaseT*) h;
-    }
+    t2t_shared_ptr<BaseT>  dequeue(int wait_ms);
+
     /** watch multiple queues and dequeue from the first queue to have
      * a message waiting.
      * \param num_queues the size of the queues array to follow
@@ -224,21 +221,10 @@ public:
      *                     return NULL immediately. </li>
      *                <li> >0 : wait for some milliseconds for a buffer
      *                     to become available, then give up </li> </ul> */
-    static BaseT * dequeue_multi(int num_queues,
+    static t2t_shared_ptr<BaseT> dequeue_multi(int num_queues,
                              t2t_queue<BaseT> **queues,
                              int *which_q,
-                             int wait_ms)
-    {
-        __t2t_queue *qs[num_queues];
-        for (int ind = 0; ind < num_queues; ind++)
-            qs[ind] = &queues[ind]->q;
-        __t2t_buffer_hdr * h = __t2t_queue::_dequeue_multi(
-            num_queues, qs, which_q, wait_ms);
-        if (h == NULL)
-            return NULL;
-        h++;
-        return (BaseT*) h;
-    }
+                             int wait_ms);
 
     __T2T_EVIL_CONSTRUCTORS(t2t_queue<BaseT>);
     __T2T_EVIL_NEW(t2t_queue<BaseT>);
@@ -285,6 +271,11 @@ public:
      *  queue of these objects. */
     typedef t2t_queue<BaseT> queue_t;
 
+    /** for convenience, i recommend defining a shared ptr like
+     * this in every derived class you make, it makes
+     *  \ref t2t_shared_ptr::cast()  easier to use. */
+    typedef t2t_shared_ptr<BaseT> sp;
+
     // GROSS: the only way to make "delete" not-public is to make
     // "new" private, which requires class members to allocate stuff,
     // that's why we provide get() instead of letting users call
@@ -305,22 +296,7 @@ public:
      *              to the constructor here. */
     template <class T, typename... ConstructorArgs>
     static bool get(T ** ptr, pool_t *pool, int wait_ms,
-                    ConstructorArgs&&... args)
-    {
-
-static_assert(std::is_base_of<BaseT, T>::value == true,
-              "allocated type must be derived from base type");
-
-static_assert(pool_t::buffer_size >= sizeof(T),
-              "allocated type must fit in pool buffer size, please "
-              "specify all message types in t2t_pool<> (and/or in "
-              "t2t_message_base<> if you're using ::pool_t)");
-
-        T * t = new(pool,wait_ms,false)
-            T(std::forward<ConstructorArgs>(args)...);
-        *ptr = t;
-        return (t != NULL);
-    }
+                    ConstructorArgs&&... args);
 
     /** get a new message from a pool and grow the pool if empty.
      * the refcount on the returned message will be 1.
@@ -336,22 +312,7 @@ static_assert(pool_t::buffer_size >= sizeof(T),
     template <class T, typename... ConstructorArgs>
     static bool get(T ** ptr, pool_t *pool,
                     t2t_grow_flag grow,
-                    ConstructorArgs&&... args)
-    {
-
-static_assert(std::is_base_of<BaseT, T>::value == true,
-              "allocated type must be derived from base type");
-
-static_assert(pool_t::buffer_size >= sizeof(T),
-              "allocated type must fit in pool buffer size, please "
-              "specify all message types in t2t_pool<> (and/or in "
-              "t2t_message_base<> if you're using ::pool_t)");
-
-        T * t = new(pool,0,true)
-            T(std::forward<ConstructorArgs>(args)...);
-        *ptr = t;
-        return (t != NULL);
-    }
+                    ConstructorArgs&&... args);
 
     /** increase reference count on this message. when you invoke
      * \ref deref(), the reference count is decreased; if the refcount
@@ -361,6 +322,7 @@ static_assert(pool_t::buffer_size >= sizeof(T),
     {
         refcount++;
     }
+
     /** decrease reference count, if it hits zero,
      *  the message is returned to the pool. note you can call
      *  \ref ref() if you want to increase the refcount, if needed. */
@@ -408,6 +370,11 @@ private:
     __T2T_EVIL_CONSTRUCTORS(t2t_message_base);
     __T2T_EVIL_NEW(t2t_message_base);
 };
+
+#define __T2T_INCLUDE_INTERNAL__ 2
+#include "threadslinger2_internal.h"
+#undef  __T2T_INCLUDE_INTERNAL__
+
 
 }; // namespace ThreadSlinger2
 

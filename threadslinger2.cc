@@ -3,6 +3,8 @@
 
 namespace ThreadSlinger2 {
 
+//////////////////////////// ERROR HANDLING ////////////////////////////
+
 static void default_ts2_assert_handler(ts2_error_t e,
                                        bool fatal,
                                        const char *filename,
@@ -16,6 +18,23 @@ static void default_ts2_assert_handler(ts2_error_t e,
 }
 
 ts2_assert_handler_t ts2_assert_handler = &default_ts2_assert_handler;
+
+//////////////////////////// T2T_POOL_STATS ////////////////////////////
+
+t2t_pool_stats :: t2t_pool_stats(int _buffer_size /*= 0*/)
+{
+    init(_buffer_size);
+}
+
+void t2t_pool_stats :: init(int _buffer_size)
+{
+    buffer_size = _buffer_size;
+    total_buffers = 0;
+    buffers_in_use = 0;
+    alloc_fails = 0;
+    grows = 0;
+    double_frees = 0;
+}
 
 //////////////////////////// T2T_CONTAINER ////////////////////////////
 

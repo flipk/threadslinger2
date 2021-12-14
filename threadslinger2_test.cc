@@ -22,84 +22,91 @@ exit 0
 
 using namespace std;
 
-class my_message_d1;
-class my_message_d2;
-class my_message_b
-    : public ThreadSlinger2::t2t_message_base<my_message_b,
-                                              my_message_d1,
-                                              my_message_d2>
+class my_message_derived1;
+class my_message_derived2;
+class my_message_base
+    : public ThreadSlinger2::t2t_message_base<my_message_base,
+                                              my_message_derived1,
+                                              my_message_derived2>
 {
 public:
     enum msgtype { TYPE_B, TYPE_D1, TYPE_D2 } t;
     int a;
     int b;
-    my_message_b(int _a, int _b)
+    my_message_base(int _a, int _b)
         : t(TYPE_B), a(_a), b(_b)
     {
-        printf("constructing my_message_b type %d a=%d b=%d\n", t,a,b);
+        printf("constructing my_message_base type %d a=%d b=%d\n", t,a,b);
     }
-    my_message_b(msgtype _t, int _a, int _b)
+    my_message_base(msgtype _t, int _a, int _b)
         : t(_t), a(_a), b(_b)
     {
-        printf("constructing my_message_b type %d a=%d b=%d\n", t,a,b);
+        printf("constructing my_message_base type %d a=%d b=%d\n", t,a,b);
     }
-    virtual ~my_message_b(void)
+    virtual ~my_message_base(void)
     {
-        printf("destructing my_message_b type %d a=%d b=%d\n", t,a,b);
+        printf("destructing my_message_base type %d a=%d b=%d\n", t,a,b);
     }
     virtual void print(void)
     {
         printf("virtual print: "
-               "message type is my_message_b, a=%d b=%d\n", a, b);
+               "message type is my_message_base, a=%d b=%d\n", a, b);
     }
 };
 
-class my_message_d1 : public my_message_b
+class my_message_derived1 : public my_message_base
 {
 public:
+    // convenience
+    typedef ThreadSlinger2::t2t_shared_ptr<my_message_derived1> sp;
+
     int c;
     int d;
-    my_message_d1(int _a, int _b, int _c, int _d)
-        : my_message_b(TYPE_D1, _a, _b), c(_c), d(_d)
+    my_message_derived1(int _a, int _b, int _c, int _d)
+        : my_message_base(TYPE_D1, _a, _b), c(_c), d(_d)
     {
-        printf("constructing my_message_d1 c=%d,d=%d\n", c,d);
+        printf("constructing my_message_derived1 c=%d,d=%d\n", c,d);
     }
-    ~my_message_d1(void)
+    ~my_message_derived1(void)
     {
-        printf("destructing my_message_d1 c=%d,d=%d\n", c,d);
+        printf("destructing my_message_derived1 c=%d,d=%d\n", c,d);
     }
     virtual void print(void)
     {
         printf("virtual print: "
-               "message type is my_message_d1, a=%d b=%d c=%d d=%d\n",
+               "message type is my_message_derived1, a=%d b=%d c=%d d=%d\n",
                a, b, c, d);
     }
 };
 
-class my_message_d2 : public my_message_b
+class my_message_derived2 : public my_message_base
 {
 public:
+    // convenience
+    typedef ThreadSlinger2::t2t_shared_ptr<my_message_derived2> sp;
+
     int e;
     int f;
     int g;
-    my_message_d2(int _a, int _b, int _e, int _f, int _g)
-        : my_message_b(TYPE_D2, _a, _b), e(_e), f(_f), g(_g)
+    my_message_derived2(int _a, int _b, int _e, int _f, int _g)
+        : my_message_base(TYPE_D2, _a, _b), e(_e), f(_f), g(_g)
     {
-        printf("constructing my_message_d2 e=%d f=%d g=%d\n", e,f,g);
+        printf("constructing my_message_derived2 e=%d f=%d g=%d\n", e,f,g);
     }
-    ~my_message_d2(void)
+    ~my_message_derived2(void)
     {
-        printf("destructing my_message_d2 e=%d f=%d g=%d\n", e,f,g);
+        printf("destructing my_message_derived2 e=%d f=%d g=%d\n", e,f,g);
     }
     virtual void print(void)
     {
         printf("virtual print: "
-               "message type is my_message_d2, a=%d b=%d e=%d f=%d g=%d\n",
+               "message type is my_message_derived2, "
+               "a=%d b=%d e=%d f=%d g=%d\n",
                a, b, e, f, g);
     }
 };
 
-void printstats(my_message_b::pool_t *pool, const char *what)
+static void printstats(my_message_base::pool_t *pool, const char *what)
 {
     ThreadSlinger2::t2t_pool_stats  stats;
     pool->get_stats(stats);
@@ -108,47 +115,7 @@ void printstats(my_message_b::pool_t *pool, const char *what)
 
 bool die_already = false;
 
-void *reader_thread(void *arg)
-{
-    my_message_b::queue_t * q = (my_message_b::queue_t *) arg;
-    my_message_b::queue_t * qs[1] = { q };
-
-    while (!die_already)
-    {
-        my_message_b * mb = NULL;
-        my_message_d1 * md1 = NULL;
-        my_message_d2 * md2 = NULL;
-        int which_q = -1;
-        printf("READER entering dequeue(2000)\n");
-
-        mb = my_message_b::queue_t::dequeue_multi(
-            1, qs, &which_q, 2000);
-        if (mb)
-        {
-            printf("READER GOT MSG:\n");
-            mb->print();
-
-            md1 = dynamic_cast<my_message_d1*>(mb);
-            if (md1)
-                printf("dynamic cast to md1 is OK!\n");
-            else
-                printf("dynamic cast to md1 is NULL!\n");
-
-            md2 = dynamic_cast<my_message_d2*>(mb);
-            if (md2)
-                printf("dynamic cast to md2 is OK!\n");
-            else
-                printf("dynamic cast to md2 is NULL!\n");
-
-            mb->deref();
-        }
-        else
-            printf("READER GOT NULL\n");
-    }
-
-    return NULL;
-}
-
+void *reader_thread(void *arg);
 
 int main(int argc, char ** argv)
 {
@@ -160,25 +127,23 @@ int main(int argc, char ** argv)
     pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);
 
     // prepopulate with 2 buffers, add 10 on grows.
-    my_message_b::pool_t mypool(2,10,&mattr,&cattr);
-
-    my_message_b::queue_t    q(&mattr,&cattr);
+    my_message_base::pool_t mypool(2,10,&mattr,&cattr);
+    my_message_base::queue_t myqueue(&mattr,&cattr);
 
     pthread_mutexattr_destroy(&mattr);
     pthread_condattr_destroy(&cattr);
 
-    my_message_b * mb;
-    my_message_d1 * md1;
-    my_message_d2 * md2;
+    my_message_base * mb;
+    my_message_derived1 * md1;
+    my_message_derived2 * md2;
 
     printstats(&mypool, "before first alloc");
 
-    // this should succeed.
-    printf("attempting first alloc, should succeed\n");
-    if (my_message_b::get(&mb, &mypool,1, 1,2))
+    printf("attempting first alloc\n");
+    if (my_message_base::get(&mb, &mypool,1, 1,2))
     {
         printf("enqueuing a message NOW\n");
-        q.enqueue(mb);
+        myqueue.enqueue(mb);
     }
     else
         printf("FAILED\n");
@@ -186,48 +151,79 @@ int main(int argc, char ** argv)
     printstats(&mypool, "after first alloc");
 
     printf("attempting second alloc\n");
-    if (my_message_d1::get(&md1, &mypool, 1000, 3,4,5,6))
+    if (my_message_derived1::get(&md1, &mypool, 1000, 3,4,5,6))
     {
         printf("enqueuing a message NOW\n");
-        q.enqueue(md1);
+        myqueue.enqueue(md1);
     }
     else
         printf("FAILED\n");
 
     printstats(&mypool, "after second alloc");
 
-
-    // now that two enqueues have been done, start the reader.
-    pthread_t id;
-    pthread_attr_t       attr;
-    pthread_attr_init   (&attr);
-    pthread_create(&id, &attr, &reader_thread, &q);
-    pthread_attr_destroy(&attr);
-
-
-
-
-    // this should succeed.
     printf("attempting third alloc\n");
-    // NOTE using my_message_b:: instead of my_message_d2:: !
-    if (my_message_b::get(&md2,&mypool,T2T_GROW, 7,8,9,10,11))
+    // NOTE using my_message_base:: instead of my_message_derived2:: !
+    if (my_message_base::get(&md2,&mypool,T2T_GROW, 7,8,9,10,11))
     {
         printf("enqueuing a message NOW\n");
-        q.enqueue(md2);
+        myqueue.enqueue(md2);
     }
     else
         printf("FAILED\n");
 
     printstats(&mypool, "after third alloc");
 
-    printf("sleeping 3\n");
-    sleep(3);
-    printf("done sleeping 3\n");
+    printf("\nnow starting reader thread:\n");
 
-    printf("telling READER to die and waiting\n");
+    // now that three enqueues have been done, start the reader.
+    pthread_t id;
+    pthread_attr_t       attr;
+    pthread_attr_init   (&attr);
+    pthread_create(&id, &attr, &reader_thread, &myqueue);
+    pthread_attr_destroy(&attr);
+
+    sleep(2);
+
     die_already =true;
     pthread_join(id, NULL);
-    printf("READER is DEAD\n");
 
     return 0;
+}
+
+void *reader_thread(void *arg)
+{
+    my_message_base::queue_t * myqueue = (my_message_base::queue_t *) arg;
+    my_message_base::queue_t * qs[1] = { myqueue };
+
+    while (!die_already)
+    {
+        my_message_base::sp x;
+        int which_q = -1;
+
+        printf("READER entering dequeue()\n");
+
+//      x = myqueue->dequeue(1000);
+        x = my_message_base::queue_t::dequeue_multi(
+            1, qs, &which_q, 1000);
+
+        if (x)
+        {
+            printf("READER GOT MSG:\n");
+            x->print();
+
+            my_message_derived1::sp  y;
+            if (y.cast(x))
+                printf("dynamic cast to md1 is OK! c,d = %d,%d\n",
+                       y->c, y->d);
+
+            my_message_derived2::sp  z;
+            if (z.cast(x))
+                printf("dynamic cast to md2 is OK! e,f,g = %d,%d,%d\n",
+                       z->e, z->f, z->g);
+        }
+        else
+            printf("READER GOT NULL\n");
+    }
+
+    return NULL;
 }
