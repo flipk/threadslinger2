@@ -81,7 +81,7 @@ t2t_shared_ptr<T> :: ~t2t_shared_ptr(void)
 }
 
 template<class T>
-void t2t_shared_ptr<T> :: set(T * _ptr)
+void t2t_shared_ptr<T> :: reset(T * _ptr /*= NULL*/)
 {
     if (ptr)
         ptr->deref();
@@ -107,6 +107,20 @@ T * t2t_shared_ptr<T> :: take(void)
 }
 
 template<class T>
+int t2t_shared_ptr<T> :: use_count(void) const
+{
+    if (ptr)
+        return ptr->use_count();
+    return 0;
+}
+
+template<class T>
+bool t2t_shared_ptr<T> :: unique(void) const
+{
+    return use_count() == 1;
+}
+
+template<class T>
 template <class U>
 bool t2t_shared_ptr<T> :: cast(const t2t_shared_ptr<U> &u)
 {
@@ -115,7 +129,7 @@ bool t2t_shared_ptr<T> :: cast(const t2t_shared_ptr<U> &u)
     T * ret = dynamic_cast<T*>(*u);
     if (ret == NULL)
         return false;
-    set(ret);
+    reset(ret);
     return true;
 }
 
@@ -328,9 +342,10 @@ public:
     /** add more buffers to this pool.
      * \param num_bufs  the number of buffers to add to the pool. */
     void add_bufs(int num_bufs);
-    // if grow=true, ignore wait_ms; if grow=false,
-    // -1 : wait forever, 0 : dont wait, >0 wait for some mS
-    void * alloc(int wait_ms, bool grow = false);
+    // wait (see enum wait_flag):
+    // -2 : grow if empty, -1 : wait forever,
+    //  0 : dont wait, >0 wait for some mS
+    void * alloc(int wait_ms);
     void release(void * ptr);
     /** retrieve statistics about this pool */
     void get_stats(t2t_pool_stats &_stats) const;
@@ -353,8 +368,14 @@ t2t_queue<BaseT> :: t2t_queue(pthread_mutexattr_t *pmattr /*= NULL*/,
 }
 
 template <class BaseT>
-void t2t_queue<BaseT> :: enqueue(BaseT * msg)
+template <class T>
+void t2t_queue<BaseT> :: enqueue(t2t_shared_ptr<T> &_msg)
 {
+    static_assert(std::is_base_of<BaseT, T>::value == true,
+                  "enqueued type must be derived from "
+                  "base type of the queue");
+    BaseT * msg = *_msg;
+    msg->ref();
     __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) msg;
     h--;
     h->ok();
@@ -398,12 +419,11 @@ t2t_shared_ptr<BaseT> t2t_queue<BaseT> :: dequeue_multi(
 
 //////////////////////////// T2T_MESSAGE_BASE ////////////////////////////
 
-
 template <class BaseT, class... DerivedTs>
 template <class T, typename... ConstructorArgs>
-// static class method
+//static class method
 bool t2t_message_base<BaseT,DerivedTs...> :: get(
-    T ** ptr, pool_t *pool, int wait_ms,
+    t2t_shared_ptr<T> * ptr, pool_t *pool, int wait_ms,
     ConstructorArgs&&... args)
 {
     static_assert(std::is_base_of<BaseT, T>::value == true,
@@ -413,31 +433,58 @@ bool t2t_message_base<BaseT,DerivedTs...> :: get(
                   "specify all message types in t2t_pool<> (and/or in "
                   "t2t_message_base<> if you're using ::pool_t)");
 
-    T * t = new(pool,wait_ms,false)
+    T * t = new(pool,wait_ms)
         T(std::forward<ConstructorArgs>(args)...);
-    *ptr = t;
+    ptr->give(t); // base constructor gives initial refcount of 1.
     return (t != NULL);
 }
 
-template <class BaseT, class... DerivedTs>
-template <class T, typename... ConstructorArgs>
-// static class method
-bool t2t_message_base<BaseT,DerivedTs...> :: get(
-    T ** ptr, pool_t *pool,
-    t2t_grow_flag grow,
-    ConstructorArgs&&... args)
-{
-    static_assert(std::is_base_of<BaseT, T>::value == true,
-                  "allocated type must be derived from base type");
-    static_assert(pool_t::buffer_size >= sizeof(T),
-                  "allocated type must fit in pool buffer size, please "
-                  "specify all message types in t2t_pool<> (and/or in "
-                  "t2t_message_base<> if you're using ::pool_t)");
 
-    T * t = new(pool,0,true)
-        T(std::forward<ConstructorArgs>(args)...);
-    *ptr = t;
-    return (t != NULL);
+template <class BaseT, class... DerivedTs>
+//static class method
+void * t2t_message_base<BaseT,DerivedTs...> :: operator new(
+    size_t wanted_sz,
+    pool_t *pool,
+    int wait_ms) throw ()
+{
+    if (wanted_sz > pool_t::buffer_size)
+    {
+        TS2_ASSERT(BUFFER_SIZE_TOO_BIG_FOR_POOL, false);
+        return NULL;
+    }
+    BaseT * obj = (BaseT*) pool->alloc(wait_ms);
+    if (obj == NULL)
+        return NULL;
+    obj->__t2t_pool = pool;
+    return obj;
+}
+
+template <class BaseT, class... DerivedTs>
+//static class method
+void t2t_message_base<BaseT,DerivedTs...> :: operator delete(void *ptr)
+{
+    BaseT * obj = (BaseT*) ptr;
+    obj->__t2t_pool->release(ptr);
+}
+
+template <class BaseT, class... DerivedTs>
+void t2t_message_base<BaseT,DerivedTs...> :: ref(void)
+{
+    refcount++;
+}
+
+template <class BaseT, class... DerivedTs>
+void t2t_message_base<BaseT,DerivedTs...> :: deref(void)
+{
+    int v = refcount--;
+    if (v <= 1)
+        delete this;
+}
+
+template <class BaseT, class... DerivedTs>
+int t2t_message_base<BaseT,DerivedTs...> :: use_count(void) const
+{
+    return std::atomic_load(&refcount);
 }
 
 //////////////////////////////////////////////////////////////////

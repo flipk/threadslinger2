@@ -58,7 +58,7 @@ class my_message_derived1 : public my_message_base
 {
 public:
     // convenience
-    typedef ThreadSlinger2::t2t_shared_ptr<my_message_derived1> sp;
+    typedef ThreadSlinger2::t2t_shared_ptr<my_message_derived1> sp_t;
 
     int c;
     int d;
@@ -83,7 +83,7 @@ class my_message_derived2 : public my_message_base
 {
 public:
     // convenience
-    typedef ThreadSlinger2::t2t_shared_ptr<my_message_derived2> sp;
+    typedef ThreadSlinger2::t2t_shared_ptr<my_message_derived2> sp_t;
 
     int e;
     int f;
@@ -133,28 +133,33 @@ int main(int argc, char ** argv)
     pthread_mutexattr_destroy(&mattr);
     pthread_condattr_destroy(&cattr);
 
-    my_message_base * mb;
-    my_message_derived1 * md1;
-    my_message_derived2 * md2;
-
     printstats(&mypool, "before first alloc");
 
     printf("attempting first alloc\n");
-    if (my_message_base::get(&mb, &mypool,1, 1,2))
     {
-        printf("enqueuing a message NOW\n");
-        myqueue.enqueue(mb);
-    }
-    else
-        printf("FAILED\n");
+        my_message_base::sp_t  spmb;
+        if (my_message_base::get(&spmb, &mypool,
+                                 ThreadSlinger2::NO_WAIT,
+                                 1,2))
+        {
+            printf("enqueuing a message NOW\n");
+            myqueue.enqueue(spmb);
+        }
+        else
+            printf("FAILED\n");
+    } // spmb should be destructed here, releasing a ref
 
     printstats(&mypool, "after first alloc");
 
     printf("attempting second alloc\n");
-    if (my_message_derived1::get(&md1, &mypool, 1000, 3,4,5,6))
+    my_message_derived1::sp_t  spmd1;
+    if (my_message_derived1::get(&spmd1, &mypool,
+                                 1000,
+                                 3,4,5,6))
     {
         printf("enqueuing a message NOW\n");
-        myqueue.enqueue(md1);
+        myqueue.enqueue(spmd1);
+        spmd1.reset();
     }
     else
         printf("FAILED\n");
@@ -163,10 +168,14 @@ int main(int argc, char ** argv)
 
     printf("attempting third alloc\n");
     // NOTE using my_message_base:: instead of my_message_derived2:: !
-    if (my_message_base::get(&md2,&mypool,T2T_GROW, 7,8,9,10,11))
+    my_message_derived2::sp_t  spmd2;
+    if (my_message_base::get(&spmd2,&mypool,
+                              ThreadSlinger2::GROW,
+                              7,8,9,10,11))
     {
         printf("enqueuing a message NOW\n");
-        myqueue.enqueue(md2);
+        myqueue.enqueue(spmd2);
+        spmd2.reset();
     }
     else
         printf("FAILED\n");
@@ -197,7 +206,7 @@ void *reader_thread(void *arg)
 
     while (!die_already)
     {
-        my_message_base::sp x;
+        my_message_base::sp_t x;
         int which_q = -1;
 
         printf("READER entering dequeue()\n");
@@ -211,12 +220,12 @@ void *reader_thread(void *arg)
             printf("READER GOT MSG:\n");
             x->print();
 
-            my_message_derived1::sp  y;
+            my_message_derived1::sp_t  y;
             if (y.cast(x))
                 printf("dynamic cast to md1 is OK! c,d = %d,%d\n",
                        y->c, y->d);
 
-            my_message_derived2::sp  z;
+            my_message_derived2::sp_t  z;
             if (z.cast(x))
                 printf("dynamic cast to md2 is OK! e,f,g = %d,%d,%d\n",
                        z->e, z->f, z->g);
