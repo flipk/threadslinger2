@@ -167,11 +167,11 @@ enum wait_flag
 /** template for a user's pool; also see \ref t2t_message_base::pool_t
  *      and \ref t2t_message_base::get. 
  * \param T  the user's derived message class. */
-template <class... T>
+template <class BaseT, class... derivedTs>
 class t2t_pool : public __t2t_pool
 {
 public:
-    static const int buffer_size = largest_type<T...>::size;
+    static const int buffer_size = largest_type<BaseT,derivedTs...>::size;
     /** \brief constructor for a pool, also see \ref t2t_message_base::pool_t.
      * \param _num_bufs_init  how many buffers to put in pool initially.
      * \param _bufs_to_add_when_growing  if you use get(wait==-2) and it
@@ -189,6 +189,23 @@ public:
                      _bufs_to_add_when_growing,
                      pmattr, pcattr) { }
     virtual ~t2t_pool(void) { }
+
+    /** get a new message from the pool and specify how long to wait.
+     * the refcount on the returned message will be 1.
+     * \return  true if allocation succeeded, false, if pool empty.
+     * \param ptr   pointer to new object returned here.
+     * \param wait_ms  how long to wait, \ref wait_flag :
+     *           <ul> <li> -2 : grow pool if empty </li>
+     *                <li> -1 : wait forever </li>
+     *                <li> 0 : don't wait at all, if the pool is empty,
+     *                     return NULL immediately. </li>
+     *                <li> >0 : wait for some milliseconds for a buffer
+     *                     to become available, then give up </li> </ul>
+     * \param args  if class T has a constructor, you must pass the args
+     *              to the constructor here. */
+    template <class T, typename... ConstructorArgs>
+    bool alloc(t2t_shared_ptr<T> * ptr, int wait_ms,
+               ConstructorArgs&&... args);
 
     __T2T_EVIL_CONSTRUCTORS(t2t_pool);
     __T2T_EVIL_DEFAULT_CONSTRUCTOR(t2t_pool);
@@ -307,24 +324,6 @@ public:
     // that's why we provide get() instead of letting users call
     // "new".
 
-    /** get a new message from a pool and specify how long to wait.
-     * the refcount on the returned message will be 1.
-     * \return  true if allocation succeeded, false, if pool empty.
-     * \param ptr   pointer to new object returned here.
-     * \param pool the pool_t to allocate from.
-     * \param wait_ms  how long to wait, \ref wait_flag :
-     *           <ul> <li> -2 : grow pool if empty </li>
-     *                <li> -1 : wait forever </li>
-     *                <li> 0 : don't wait at all, if the pool is empty,
-     *                     return NULL immediately. </li>
-     *                <li> >0 : wait for some milliseconds for a buffer
-     *                     to become available, then give up </li> </ul>
-     * \param args  if class T has a constructor, you must pass the args
-     *              to the constructor here. */
-    template <class T, typename... ConstructorArgs>
-    static bool get(t2t_shared_ptr<T> * ptr, pool_t *pool, int wait_ms,
-                    ConstructorArgs&&... args);
-
     /** increase reference count on this message. when you invoke
      * \ref deref(), the reference count is decreased; if the refcount
      * hits zero, the object is deleted and returned to the pool it
@@ -352,6 +351,9 @@ protected:
 private:
     pool_t * __t2t_pool;
     std::atomic_int  refcount;
+
+    friend pool_t;  // t2t_pool.alloc is what invokes new().
+
     // this is a 'no-throw' version of operator new,
     // which returns NULL instead of throwing.
     // this is important, because it prevents calling

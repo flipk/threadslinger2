@@ -22,12 +22,15 @@ exit 0
 
 using namespace std;
 
+namespace ts2 = ThreadSlinger2;
+template <class T> using ts2sp = ts2::t2t_shared_ptr<T>;
+
 class my_message_derived1;
 class my_message_derived2;
 class my_message_base
-    : public ThreadSlinger2::t2t_message_base<my_message_base,
-                                              my_message_derived1,
-                                              my_message_derived2>
+    : public ts2::t2t_message_base<my_message_base,
+                                   my_message_derived1,
+                                   my_message_derived2>
 {
 public:
     enum msgtype { TYPE_B, TYPE_D1, TYPE_D2 } t;
@@ -58,7 +61,7 @@ class my_message_derived1 : public my_message_base
 {
 public:
     // convenience
-    typedef ThreadSlinger2::t2t_shared_ptr<my_message_derived1> sp_t;
+    typedef ts2sp<my_message_derived1> sp_t;
 
     int c;
     int d;
@@ -83,7 +86,7 @@ class my_message_derived2 : public my_message_base
 {
 public:
     // convenience
-    typedef ThreadSlinger2::t2t_shared_ptr<my_message_derived2> sp_t;
+    typedef ts2sp<my_message_derived2> sp_t;
 
     int e;
     int f;
@@ -108,7 +111,7 @@ public:
 
 static void printstats(my_message_base::pool_t *pool, const char *what)
 {
-    ThreadSlinger2::t2t_pool_stats  stats;
+    ts2::t2t_pool_stats  stats;
     pool->get_stats(stats);
     cout << what << ": " << stats << endl;
 }
@@ -138,9 +141,9 @@ int main(int argc, char ** argv)
     printf("attempting first alloc\n");
     {
         my_message_base::sp_t  spmb;
-        if (my_message_base::get(&spmb, &mypool,
-                                 ThreadSlinger2::NO_WAIT,
-                                 1,2))
+        if (mypool.alloc(&spmb,
+                         ts2::NO_WAIT,
+                         1,2))
         {
             printf("enqueuing a message NOW\n");
             myqueue.enqueue(spmb);
@@ -153,9 +156,9 @@ int main(int argc, char ** argv)
 
     printf("attempting second alloc\n");
     my_message_derived1::sp_t  spmd1;
-    if (my_message_derived1::get(&spmd1, &mypool,
-                                 1000,
-                                 3,4,5,6))
+    if (mypool.alloc(&spmd1,
+                     1000,
+                     3,4,5,6))
     {
         printf("enqueuing a message NOW\n");
         myqueue.enqueue(spmd1);
@@ -167,11 +170,10 @@ int main(int argc, char ** argv)
     printstats(&mypool, "after second alloc");
 
     printf("attempting third alloc\n");
-    // NOTE using my_message_base:: instead of my_message_derived2:: !
     my_message_derived2::sp_t  spmd2;
-    if (my_message_base::get(&spmd2,&mypool,
-                              ThreadSlinger2::GROW,
-                              7,8,9,10,11))
+    if (mypool.alloc(&spmd2,
+                     ts2::GROW,
+                     7,8,9,10,11))
     {
         printf("enqueuing a message NOW\n");
         myqueue.enqueue(spmd2);

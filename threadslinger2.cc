@@ -101,7 +101,7 @@ void __t2t_pool :: add_bufs(int num_bufs)
 // wait_ms (see enum wait_flag):
 // -2 : grow if empty, -1 : wait forever,
 //  0 : don't wait, >0 wait for some mS
-void * __t2t_pool :: alloc(int wait_ms)
+void * __t2t_pool :: _alloc(int wait_ms)
 {
     __t2t_buffer_hdr * h = NULL;
     if (wait_ms == GROW)

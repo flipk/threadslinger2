@@ -345,7 +345,7 @@ public:
     // wait (see enum wait_flag):
     // -2 : grow if empty, -1 : wait forever,
     //  0 : dont wait, >0 wait for some mS
-    void * alloc(int wait_ms);
+    void * _alloc(int wait_ms);
     void release(void * ptr);
     /** retrieve statistics about this pool */
     void get_stats(t2t_pool_stats &_stats) const;
@@ -357,6 +357,27 @@ public:
 //////////////////////////////////////////////////////////////////
 
 #elif __T2T_INCLUDE_INTERNAL__ == 2
+
+//////////////////////////// T2T_POOL ////////////////////////////
+
+template <class BaseT, class... derivedTs>
+template <class T, typename... ConstructorArgs>
+bool t2t_pool<BaseT,derivedTs...> :: alloc(
+    t2t_shared_ptr<T> * ptr, int wait_ms,
+    ConstructorArgs&&... args)
+{
+    static_assert(std::is_base_of<BaseT, T>::value == true,
+                  "allocated type must be derived from base type");
+    static_assert(buffer_size >= sizeof(T),
+                  "allocated type must fit in pool buffer size, please "
+                  "specify all message types in t2t_pool<> (and/or in "
+                  "t2t_message_base<> if you're using ::pool_t)");
+
+    T * t = new(this,wait_ms)
+        T(std::forward<ConstructorArgs>(args)...);
+    ptr->give(t); // base constructor gives initial refcount of 1.
+    return (t != NULL);
+}
 
 //////////////////////////// T2T_QUEUE ////////////////////////////
 
@@ -420,27 +441,6 @@ t2t_shared_ptr<BaseT> t2t_queue<BaseT> :: dequeue_multi(
 //////////////////////////// T2T_MESSAGE_BASE ////////////////////////////
 
 template <class BaseT, class... DerivedTs>
-template <class T, typename... ConstructorArgs>
-//static class method
-bool t2t_message_base<BaseT,DerivedTs...> :: get(
-    t2t_shared_ptr<T> * ptr, pool_t *pool, int wait_ms,
-    ConstructorArgs&&... args)
-{
-    static_assert(std::is_base_of<BaseT, T>::value == true,
-                  "allocated type must be derived from base type");
-    static_assert(pool_t::buffer_size >= sizeof(T),
-                  "allocated type must fit in pool buffer size, please "
-                  "specify all message types in t2t_pool<> (and/or in "
-                  "t2t_message_base<> if you're using ::pool_t)");
-
-    T * t = new(pool,wait_ms)
-        T(std::forward<ConstructorArgs>(args)...);
-    ptr->give(t); // base constructor gives initial refcount of 1.
-    return (t != NULL);
-}
-
-
-template <class BaseT, class... DerivedTs>
 //static class method
 void * t2t_message_base<BaseT,DerivedTs...> :: operator new(
     size_t wanted_sz,
@@ -452,7 +452,7 @@ void * t2t_message_base<BaseT,DerivedTs...> :: operator new(
         TS2_ASSERT(BUFFER_SIZE_TOO_BIG_FOR_POOL, false);
         return NULL;
     }
-    BaseT * obj = (BaseT*) pool->alloc(wait_ms);
+    BaseT * obj = (BaseT*) pool->_alloc(wait_ms);
     if (obj == NULL)
         return NULL;
     obj->__t2t_pool = pool;
