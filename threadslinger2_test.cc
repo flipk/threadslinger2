@@ -7,9 +7,10 @@ libs="-lpthread"
 defs=""
 cflags="-O3"
 lflags=""
+std="-std=c++11"
 
 clear
-g++ $cflags $lflags $defs $incs $srcs $libs  -o t
+g++ $std $cflags $lflags $defs $incs $srcs $libs  -o t
 
 if [[ "x$1" = "x" ]] ; then
     script 0log -c ./t
@@ -23,14 +24,15 @@ exit 0
 using namespace std;
 
 namespace ts2 = ThreadSlinger2;
-template <class T> using ts2sp = ts2::t2t_shared_ptr<T>;
+template <class... T> using ts2mb = ts2::t2t_message_base<T...>;
+template <class    T> using ts2sp = ts2::t2t_shared_ptr  <T>;
 
 class my_message_derived1;
 class my_message_derived2;
 class my_message_base
-    : public ts2::t2t_message_base<my_message_base,
-                                   my_message_derived1,
-                                   my_message_derived2>
+    : public ts2mb<my_message_base,
+                   my_message_derived1,
+                   my_message_derived2>
 {
 public:
     enum msgtype { TYPE_B, TYPE_D1, TYPE_D2 } t;
@@ -50,7 +52,7 @@ public:
     {
         printf("destructing my_message_base type %d a=%d b=%d\n", t,a,b);
     }
-    virtual void print(void)
+    virtual void print(void) const
     {
         printf("virtual print: "
                "message type is my_message_base, a=%d b=%d\n", a, b);
@@ -74,7 +76,7 @@ public:
     {
         printf("destructing my_message_derived1 c=%d,d=%d\n", c,d);
     }
-    virtual void print(void)
+    virtual void print(void) const override
     {
         printf("virtual print: "
                "message type is my_message_derived1, a=%d b=%d c=%d d=%d\n",
@@ -100,7 +102,7 @@ public:
     {
         printf("destructing my_message_derived2 e=%d f=%d g=%d\n", e,f,g);
     }
-    virtual void print(void)
+    virtual void print(void) const override
     {
         printf("virtual print: "
                "message type is my_message_derived2, "
