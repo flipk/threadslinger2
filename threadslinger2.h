@@ -40,12 +40,18 @@ enum ts2_error_t {
     T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST   = 9  //!< already on a list
 };
 
-/** defines the signature of any user-supplied assertion handler. */
+/** defines the signature of any user-supplied assertion handler
+ * \note If your assert handler is passed fatal=true, your assert handler
+ *   \em must not continue execution of this thread. To continue execution
+ * is to invite SEGV or other errors. */
 typedef void (*ts2_assert_handler_t)(ts2_error_t e, bool fatal,
                                      const char *filename,
                                      int lineno);
 
-/** a global variable holds a pointer to an assertion handler function. */
+/** a global variable holds a pointer to an assertion handler function
+ * \note If your assert handler is passed fatal=true, your assert handler
+ *   \em must not continue execution of this thread. To continue execution
+ * is to invite SEGV or other errors. */
 extern ts2_assert_handler_t ts2_assert_handler;
 
 //////////////////////////// T2T_POOL_STATS ////////////////////////////
@@ -164,8 +170,7 @@ enum wait_flag
 
 //////////////////////////// T2T_POOL ////////////////////////////
 
-/** template for a user's pool; also see \ref t2t_message_base::pool_t
- *      and \ref t2t_message_base::get. 
+/** template for a user's pool; also see \ref t2t_message_base::pool_t.
  * \param T  the user's derived message class. */
 template <class BaseT, class... derivedTs>
 class t2t_pool : public __t2t_pool
@@ -404,7 +409,7 @@ Classes of interest provided by this library:
    </ul>
  </ul>
 
-Suppose you had a three messages you wanted to pass in a system, a base
+Suppose you had three messages you wanted to pass in a system, a base
 class messages and two derived classes. Define them as below, deriving the
 first class from ThreadSlinger2::t2t_message_base. Please note it is
 important to list all derived types in the t2t_message_base template
@@ -423,12 +428,15 @@ class my_message_derived2; // forward
 class my_message_base
     : public ThreadSlinger2::t2t_message_base<
                  my_message_base,
-                 my_message_derived1, my_message_derived2>
+                 my_message_derived1,
+                 my_message_derived2>
 {
 public:
     my_message_base(  constructor_args  );
     virtual ~my_message_base( void );
     // your data, and any other methods (including virtual!) go here
+    virtual void print(void) const { <print stuff> }
+
 };
 
 class my_message_derived1 : public my_message_base
@@ -439,6 +447,7 @@ public:
     my_message_derived1(  constructor_args  );
     ~my_message_derived1( void );
     // your data, and any other methods go here
+    virtual void print(void) const override { <print stuff> }
 };
 
 class my_message_derived2 : public my_message_base
@@ -449,6 +458,7 @@ public:
     my_message_derived2(  constructor_args  );
     ~my_message_derived2( void );
     // your data, and any other methods go here
+    virtual void print(void) const override { <print stuff> }
 };
 \endcode
 
@@ -506,19 +516,20 @@ another.
 
 Now, a sender may allocate new buffers from the pool, and any arguments
 required for the object constructors are passed through the arguments
-to the \ref ThreadSlinger2::t2t_message_base::get call.
+to the \ref ThreadSlinger2::t2t_pool::alloc call.
 
 Once it has allocated a buffer and filled it out, it enqueues it using
 \ref ThreadSlinger2::t2t_queue::enqueue.
 
 \code
     my_message_base::sp_t  spmb;
-    if (my_message_base::get(&spmb, &mypool,
+    if (mypool.alloc(&spmb,
                <time to wait>,
                <args to my_message_base constructor>))
     {
+        spmb->field = value;  // etc
         printf("enqueuing a message NOW\n");
-        q.enqueue(spmb); // q takes a ref
+        myqueue.enqueue(spmb); // q takes a ref
         spmb.reset(); // release our ref
     }
 \endcode
@@ -534,13 +545,13 @@ grow if it is currently empty.
 
 \code
     my_message_derived2::sp_t  spmd2;
-    // NOTE using my_message_base:: instead of my_message_derived2:: !
-    if (my_message_base::get(&spmd2,&mypool,
+    if (mypool.alloc(&spmd2,
                ThreadSlinger2::GROW,
                <args for my_message_d2 constructor>))
     {
+        spmd2->field = value; // etc
         printf("enqueuing a message NOW\n");
-        q.enqueue(spmd2); // takes a ref
+        myqueue.enqueue(spmd2); // takes a ref
         spmd2.reset(); // release our ref
     }
 \endcode
@@ -558,7 +569,7 @@ types to derived types. This counts as an additional reference
 against the message object.
 
 \code
-    while (!die_already)
+    while (keep_going)
     {
         my_message_base::sp_t x;
         // wait for up to 1000 mS (one second) for a message.
@@ -570,11 +581,11 @@ against the message object.
             my_message_derived1::sp_t  y;
             if (y.cast(x))
                 printf("got a derived 1! values = <format flags>\n",
-                       y-> <derived 1 values>);
+                       y->derived1_field);
             my_message_derived2::sp_t  z;
             if (z.cast(x))
                 printf("got a derived 2! values = <format flags>\n",
-                       z-> <derived 2 values>);
+                       z->derived2_field);
         } // y and z go out of scope here, releasing their references
         else
             printf("READER GOT NULL\n");
@@ -584,7 +595,11 @@ against the message object.
 Finally, by default errors are caught and printed on stderr; fatal errors
 cause an exit of the process. If you want your own handler for ThreadSlinger2
 errors, you can register a function to handle them using the global variable
-\ref ThreadSlinger2::ts2_assert_handler :
+\ref ThreadSlinger2::ts2_assert_handler.
+
+\note If your assert handler is passed fatal=true, your assert handler
+   \em must not continue execution of this thread. To continue execution
+   is to invite SEGV or other errors.
 
 \code
 
@@ -602,7 +617,7 @@ custom_ts2_assert_handler(ThreadSlinger2::ts2_error_t e,
 
 void register_new_assertion_handler(void)
 {
-   ThreadSlinger2::ts2_assert_handler = &default_ts2_assert_handler;
+   ThreadSlinger2::ts2_assert_handler = &custom_ts2_assert_handler;
 }
 
 \endcode
