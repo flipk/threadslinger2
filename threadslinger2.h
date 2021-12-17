@@ -86,7 +86,8 @@ struct t2t_shared_ptr {
 
     /** copy constructor will copy the pointer in the other object and
      * will ref() the pointer. */
-    t2t_shared_ptr<T>(const t2t_shared_ptr<T> &other);
+    template <class BaseT>
+    t2t_shared_ptr<T>(const t2t_shared_ptr<BaseT> &other);
 
     /** move constructor will remove the pointer from the source but
      * will not change the refcounter */
@@ -128,12 +129,9 @@ struct t2t_shared_ptr {
      * referencing the contained object). */
     bool unique(void) const;
 
-    /** do a dynamic cast of one type to another; returns false
-     * if dynamic_cast fails and leaves this object empty. */
-    template <class U> bool cast(const t2t_shared_ptr<U> &u);
-
     /** assign, takes another ref() on the object */
-    t2t_shared_ptr<T> &operator=(const t2t_shared_ptr<T> &other);
+    template <class BaseT>
+    t2t_shared_ptr<T> &operator=(const t2t_shared_ptr<BaseT> &other);
 
     /** move, useful for zero copy return */
     t2t_shared_ptr<T> &operator=(t2t_shared_ptr<T> &&other);

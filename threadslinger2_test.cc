@@ -225,12 +225,14 @@ void *reader_thread(void *arg)
             x->print();
 
             my_message_derived1::sp_t  y;
-            if (y.cast(x))
+            // this one tests the casting operator=
+            if (y = x)
                 printf("dynamic cast to md1 is OK! c,d = %d,%d\n",
                        y->c, y->d);
 
-            my_message_derived2::sp_t  z;
-            if (z.cast(x))
+            // this one tests the casting constructor
+            my_message_derived2::sp_t  z = x;
+            if (z)
                 printf("dynamic cast to md2 is OK! e,f,g = %d,%d,%d\n",
                        z->e, z->f, z->g);
         }

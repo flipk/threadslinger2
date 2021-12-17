@@ -58,10 +58,11 @@ t2t_shared_ptr<T> :: t2t_shared_ptr(T * _ptr /*= NULL*/)
         ptr->ref();
 }
 
-template<class T>
-t2t_shared_ptr<T> :: t2t_shared_ptr(const t2t_shared_ptr<T> &other)
+template <class T>
+template <class BaseT>
+t2t_shared_ptr<T> :: t2t_shared_ptr(const t2t_shared_ptr<BaseT> &other)
 {
-    ptr = other.ptr;
+    ptr = dynamic_cast<T*>(*other);
     if (ptr)
         ptr->ref();
 }
@@ -121,25 +122,13 @@ bool t2t_shared_ptr<T> :: unique(void) const
 }
 
 template<class T>
-template <class U>
-bool t2t_shared_ptr<T> :: cast(const t2t_shared_ptr<U> &u)
-{
-    if (!u)
-        return false;
-    T * ret = dynamic_cast<T*>(*u);
-    if (ret == NULL)
-        return false;
-    reset(ret);
-    return true;
-}
-
-template<class T>
+template <class BaseT>
 t2t_shared_ptr<T> &
-t2t_shared_ptr<T> :: operator=(const t2t_shared_ptr<T> &other)
+t2t_shared_ptr<T> :: operator=(const t2t_shared_ptr<BaseT> &other)
 {
     if (ptr)
         ptr->deref();
-    ptr = other.ptr;
+    ptr = dynamic_cast<T*>(*other);
     if (ptr)
         ptr->ref();
     return *this;
