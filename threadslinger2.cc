@@ -11,7 +11,7 @@ static void default_ts2_assert_handler(ts2_error_t e,
                                        int lineno)
 {
     fprintf(stderr, "\n\nERROR: ThreadSlinger2 ASSERTION %d at %s:%d\n\n",
-            filename, lineno);
+            e, filename, lineno);
     if (fatal)
         // if you dont like this exiting, CHANGE IT
         exit(1);
