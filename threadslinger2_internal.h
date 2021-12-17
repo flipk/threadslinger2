@@ -158,7 +158,7 @@ t2t_shared_ptr<T> :: operator=(t2t_shared_ptr<T> &&other)
 
 //////////////////////////// ERROR HANDLING ////////////////////////////
 
-#define TS2_ASSERT(err,fatal) \
+#define __TS2_ASSERT(err,fatal) \
     ts2_assert_handler(err,fatal, __FILE__, __LINE__)
 
 //////////////////////////// T2T_LINKS ////////////////////////////
@@ -175,7 +175,7 @@ struct __t2t_links
     {
         if (magic == LINKS_MAGIC)
             return true;
-        TS2_ASSERT(T2T_LINKS_MAGIC_CORRUPT,true);
+        __TS2_ASSERT(T2T_LINKS_MAGIC_CORRUPT,true);
         return false;
     }
     void init(void)
@@ -194,7 +194,7 @@ struct __t2t_links
         ok();
         if (item->list != NULL)
         {
-            TS2_ASSERT(T2T_LINKS_ADD_ALREADY_ON_LIST,true);
+            __TS2_ASSERT(T2T_LINKS_ADD_ALREADY_ON_LIST,true);
         }
         item->next = next;
         item->prev = this;
@@ -208,7 +208,7 @@ struct __t2t_links
         ok();
         if (item->list != NULL)
         {
-            TS2_ASSERT(T2T_LINKS_ADD_ALREADY_ON_LIST,true);
+            __TS2_ASSERT(T2T_LINKS_ADD_ALREADY_ON_LIST,true);
         }
         item->next = this;
         item->prev = prev;
@@ -225,7 +225,7 @@ struct __t2t_links
         ok();
         if (list == NULL)
         {
-            TS2_ASSERT(T2T_LINKS_REMOVE_NOT_ON_LIST,true);
+            __TS2_ASSERT(T2T_LINKS_REMOVE_NOT_ON_LIST,true);
         }
         list = NULL;
         next->prev = prev;
@@ -449,7 +449,7 @@ void * t2t_message_base<BaseT,DerivedTs...> :: operator new(
 {
     if (wanted_sz > pool_t::buffer_size)
     {
-        TS2_ASSERT(BUFFER_SIZE_TOO_BIG_FOR_POOL, false);
+        __TS2_ASSERT(BUFFER_SIZE_TOO_BIG_FOR_POOL, false);
         return NULL;
     }
     BaseT * obj = (BaseT*) pool->_alloc(wait_ms);

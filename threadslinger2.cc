@@ -135,11 +135,11 @@ void __t2t_pool :: release(void * ptr)
     h--;
     if (h->list != NULL)
     {
-        TS2_ASSERT(T2T_POOL_RELEASE_ALREADY_ON_LIST,true);
+        __TS2_ASSERT(T2T_POOL_RELEASE_ALREADY_ON_LIST,true);
     }
     if (h->inuse == false)
     {
-        TS2_ASSERT(DOUBLE_FREE,false);
+        __TS2_ASSERT(DOUBLE_FREE,false);
         stats.double_frees ++;
     }
     else
@@ -186,7 +186,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
     lock();
     if (waiting_cond != NULL)
     {
-        TS2_ASSERT(T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE,false);
+        __TS2_ASSERT(T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE,false);
         unlock();
         return NULL;
     }
@@ -233,7 +233,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
     h = buffers.get_head();
     h->ok();
     if (!_validate(h))
-        TS2_ASSERT(T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
+        __TS2_ASSERT(T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
     h->remove();
     unlock();
     return h;
@@ -257,7 +257,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue_multi(int num_qs,
         q->lock();
         if (q->waiting_cond != NULL)
         {
-            TS2_ASSERT(T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE,false);
+            __TS2_ASSERT(T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE,false);
             // dont bail, just overwrite cuz its busted anyway.
         }
         q->waiting_cond = &q0->cond;
@@ -273,7 +273,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue_multi(int num_qs,
             {
                 h = q->buffers.get_head();
                 if (!q->_validate(h))
-                    TS2_ASSERT(T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
+                    __TS2_ASSERT(T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
                 h->remove();
                 qind = ind;
             }
@@ -325,7 +325,7 @@ void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
     h->ok();
     if (h->list != NULL)
     {
-        TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
+        __TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return;
     }
     lock();
@@ -342,7 +342,7 @@ void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
     h->ok();
     if (h->list != NULL)
     {
-        TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
+        __TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return;
     }
     lock();
