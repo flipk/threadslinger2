@@ -267,7 +267,7 @@ struct __t2t_timespec : public timespec
     __t2t_timespec(int ms)
     {
         tv_sec = ms / 1000;
-        tv_nsec = (ms % 1000) * 1000;
+        tv_nsec = (ms % 1000) * 1000000;
     }
     void getNow(clockid_t clk_id)
     {
