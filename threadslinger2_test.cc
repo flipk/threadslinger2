@@ -24,17 +24,17 @@ exit 0
 using namespace std;
 
 namespace ts2 = ThreadSlinger2;
-template <class... T> using ts2mb = ts2::t2t_message_base<T...>;
-template <class    T> using ts2sp = ts2::t2t_shared_ptr  <T>;
+// neat, but not using them just now:
+//template <class... T> using ts2mb = ts2::t2t_message_base<T...>;
+//template <class    T> using ts2sp = ts2::t2t_shared_ptr  <T>;
 
-class my_message_derived1;
-class my_message_derived2;
-class my_message_base
-    : public ts2mb<my_message_base,
-                   my_message_derived1,
-                   my_message_derived2>
+class my_message_base : public ts2::t2t_message_base<my_message_base>
 {
 public:
+    // convenience
+    typedef ts2::t2t_queue<my_message_base> queue_t;
+    typedef ts2::t2t_shared_ptr<my_message_base> sp_t;
+
     enum msgtype { TYPE_B, TYPE_D1, TYPE_D2 } t;
     int a;
     int b;
@@ -63,18 +63,20 @@ class my_message_derived1 : public my_message_base
 {
 public:
     // convenience
-    typedef ts2sp<my_message_derived1> sp_t;
+    typedef ts2::t2t_pool<my_message_base,
+                          my_message_derived1> pool1_t;
+    typedef ts2::t2t_shared_ptr<my_message_derived1> sp_t;
 
     int c;
     int d;
     my_message_derived1(int _a, int _b, int _c, int _d)
         : my_message_base(TYPE_D1, _a, _b), c(_c), d(_d)
     {
-        printf("constructing my_message_derived1 c=%d,d=%d\n", c,d);
+        printf("constructing my_message_derived1 c=%d d=%d\n", c,d);
     }
     ~my_message_derived1(void)
     {
-        printf("destructing my_message_derived1 c=%d,d=%d\n", c,d);
+        printf("destructing my_message_derived1 c=%d d=%d\n", c,d);
     }
     virtual void print(void) const override
     {
@@ -88,7 +90,9 @@ class my_message_derived2 : public my_message_base
 {
 public:
     // convenience
-    typedef ts2sp<my_message_derived2> sp_t;
+    typedef ts2::t2t_pool<my_message_base,
+                          my_message_derived2> pool2_t;
+    typedef ts2::t2t_shared_ptr<my_message_derived2> sp_t;
 
     int e;
     int f;
@@ -111,7 +115,9 @@ public:
     }
 };
 
-static void printstats(my_message_base::pool_t *pool, const char *what)
+template <class BaseT, class... derivedTs>
+void printstats(ts2::t2t_pool<BaseT,derivedTs...> *pool,
+                const char *what)
 {
     ts2::t2t_pool_stats  stats;
     pool->get_stats(stats);
@@ -119,6 +125,12 @@ static void printstats(my_message_base::pool_t *pool, const char *what)
 }
 
 bool die_already = false;
+
+struct thread_info {
+    static const int max_queues = 100; // arbitrary
+    int num_queues;
+    my_message_base::queue_t* qs[max_queues];
+};
 
 void *reader_thread(void *arg);
 
@@ -131,82 +143,91 @@ int main(int argc, char ** argv)
     pthread_condattr_init(&cattr);
     pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);
 
-    // prepopulate with 2 buffers, add 10 on grows.
-    my_message_base::pool_t mypool(2,10,&mattr,&cattr);
-    my_message_base::queue_t myqueue(&mattr,&cattr);
+    my_message_derived1::pool1_t  mypool1(1,10,&mattr,&cattr);
+    my_message_derived2::pool2_t  mypool2(1,10,&mattr,&cattr);
+    my_message_base    ::queue_t  myqueue1(    &mattr,&cattr);
+    my_message_base    ::queue_t  myqueue2(    &mattr,&cattr);
 
     pthread_mutexattr_destroy(&mattr);
     pthread_condattr_destroy(&cattr);
 
-    printstats(&mypool, "before first alloc");
+    printstats(&mypool1, "1");
+    printstats(&mypool2, "2");
 
     printf("attempting first alloc\n");
+    my_message_base::sp_t  spmb;
+    if (mypool1.alloc(&spmb,
+                      ts2::NO_WAIT,
+                      1,2))
     {
-        my_message_base::sp_t  spmb;
-        if (mypool.alloc(&spmb,
-                         ts2::NO_WAIT,
-                         1,2))
-        {
-            printf("enqueuing a message NOW\n");
-            myqueue.enqueue(spmb);
-        }
-        else
-            printf("FAILED\n");
-    } // spmb should be destructed here, releasing a ref
+        printf("enqueuing a message NOW\n");
+        myqueue1.enqueue(spmb);
+    }
+    else
+        printf("FAILED\n");
 
-    printstats(&mypool, "after first alloc");
+    printstats(&mypool1, "1");
+    printstats(&mypool2, "2");
 
     printf("attempting second alloc\n");
     my_message_derived1::sp_t  spmd1;
-    if (mypool.alloc(&spmd1,
-                     1000,
+    if (mypool1.alloc(&spmd1,
+                     ts2::GROW,
                      3,4,5,6))
     {
         printf("enqueuing a message NOW\n");
-        myqueue.enqueue(spmd1);
-        spmd1.reset();
+        myqueue2.enqueue(spmd1);
     }
     else
         printf("FAILED\n");
 
-    printstats(&mypool, "after second alloc");
+    printstats(&mypool1, "1");
+    printstats(&mypool2, "2");
 
     printf("attempting third alloc\n");
     my_message_derived2::sp_t  spmd2;
-    if (mypool.alloc(&spmd2,
-                     ts2::GROW,
+    if (mypool2.alloc(&spmd2,
+                      1000,
                      7,8,9,10,11))
     {
         printf("enqueuing a message NOW\n");
-        myqueue.enqueue(spmd2);
-        spmd2.reset();
+        myqueue2.enqueue(spmd2);
     }
     else
         printf("FAILED\n");
 
-    printstats(&mypool, "after third alloc");
+    printstats(&mypool1, "1");
+    printstats(&mypool2, "2");
 
     printf("\nnow starting reader thread:\n");
 
     // now that three enqueues have been done, start the reader.
-    pthread_t id;
+    thread_info  ti;
+
+    ti.num_queues = 0;
+    ti.qs[ti.num_queues++] = &myqueue1;
+    ti.qs[ti.num_queues++] = &myqueue2;
+
     pthread_attr_t       attr;
     pthread_attr_init   (&attr);
-    pthread_create(&id, &attr, &reader_thread, &myqueue);
+    pthread_t       id;
+    pthread_create(&id, &attr, &reader_thread, &ti);
     pthread_attr_destroy(&attr);
 
-    sleep(2);
+    sleep(1);
 
-    die_already =true;
+    die_already = true;
     pthread_join(id, NULL);
+
+    printstats(&mypool1, "1");
+    printstats(&mypool2, "2");
 
     return 0;
 }
 
 void *reader_thread(void *arg)
 {
-    my_message_base::queue_t * myqueue = (my_message_base::queue_t *) arg;
-    my_message_base::queue_t * qs[1] = { myqueue };
+    thread_info * ti = (thread_info *) arg;
 
     while (!die_already)
     {
@@ -215,13 +236,12 @@ void *reader_thread(void *arg)
 
         printf("READER entering dequeue()\n");
 
-//      x = myqueue->dequeue(1000);
         x = my_message_base::queue_t::dequeue_multi(
-            1, qs, &which_q, 1000);
+            ti->num_queues, ti->qs, &which_q, 250);
 
         if (x)
         {
-            printf("READER GOT MSG:\n");
+            printf("READER GOT MSG on queue %d:\n", which_q);
             x->print();
 
             my_message_derived1::sp_t  y;

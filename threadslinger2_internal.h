@@ -54,8 +54,7 @@ t2t_shared_ptr<T> :: t2t_shared_ptr(T * _ptr /*= NULL*/)
     : ptr(NULL)
 {
     ptr = _ptr;
-    if (ptr)
-        ptr->ref();
+    ref();
 }
 
 template <class T>
@@ -63,8 +62,7 @@ template <class BaseT>
 t2t_shared_ptr<T> :: t2t_shared_ptr(const t2t_shared_ptr<BaseT> &other)
 {
     ptr = dynamic_cast<T*>(*other);
-    if (ptr)
-        ptr->ref();
+    ref();
 }
 
 template<class T>
@@ -77,41 +75,72 @@ t2t_shared_ptr<T> :: t2t_shared_ptr(t2t_shared_ptr<T> &&other)
 template<class T>
 t2t_shared_ptr<T> :: ~t2t_shared_ptr(void)
 {
-    if (ptr)
-        ptr->deref();
+    deref();
 }
 
 template<class T>
 void t2t_shared_ptr<T> :: reset(T * _ptr /*= NULL*/)
 {
-    if (ptr)
-        ptr->deref();
+    deref();
     ptr = _ptr;
-    if (ptr)
-        ptr->ref();
+    ref();
 }
 
 template<class T>
 void t2t_shared_ptr<T> :: give(T * _ptr)
 {
-    if (ptr)
-        ptr->deref();
+    deref();
     ptr = _ptr;
+    // the caller is passing ownership to us,
+    // presumably they had a refcount,
+    // which they are giving to us,
+    // so don't modify the refcount here.
 }
 
 template<class T>
 T * t2t_shared_ptr<T> :: take(void)
 {
     T * ret = ptr;
+    // we are letting the caller take ownership from us,
+    // so the refcount we have is being given to them,
+    // so don't modify the refcount here.
     ptr = NULL;
     return ret;
+}
+
+template<class T>
+template <class BaseT>
+t2t_shared_ptr<T> &
+t2t_shared_ptr<T> :: operator=(const t2t_shared_ptr<BaseT> &other)
+{
+    deref();
+    ptr = dynamic_cast<T*>(*other);
+    ref();
+    return *this;
+}
+
+template<class T>
+t2t_shared_ptr<T> &
+t2t_shared_ptr<T> :: operator=(t2t_shared_ptr<T> &&other)
+{
+    deref();
+    ptr = other.ptr;
+    other.ptr = NULL;
+    return *this;
+}
+
+template<class T>
+void t2t_shared_ptr<T> :: ref(void)
+{
+    if (ptr)
+        ptr->__refcount++;
 }
 
 template<class T>
 int t2t_shared_ptr<T> :: use_count(void) const
 {
     if (ptr)
-        return ptr->use_count();
+        return std::atomic_load(&ptr->__refcount);
     return 0;
 }
 
@@ -122,27 +151,13 @@ bool t2t_shared_ptr<T> :: unique(void) const
 }
 
 template<class T>
-template <class BaseT>
-t2t_shared_ptr<T> &
-t2t_shared_ptr<T> :: operator=(const t2t_shared_ptr<BaseT> &other)
+void t2t_shared_ptr<T> :: deref(void)
 {
-    if (ptr)
-        ptr->deref();
-    ptr = dynamic_cast<T*>(*other);
-    if (ptr)
-        ptr->ref();
-    return *this;
-}
-
-template<class T>
-t2t_shared_ptr<T> &
-t2t_shared_ptr<T> :: operator=(t2t_shared_ptr<T> &&other)
-{
-    if (ptr)
-        ptr->deref();
-    ptr = other.ptr;
-    other.ptr = NULL;
-    return *this;
+    if (ptr && (ptr->__refcount-- <= 1))
+    {
+        delete ptr;
+        ptr = NULL;
+    }
 }
 
 //////////////////////////// ERROR HANDLING ////////////////////////////
@@ -328,6 +343,7 @@ protected:
                pthread_condattr_t *pcattr);
     virtual ~__t2t_pool(void);
 public:
+    int get_buffer_size(void) const { return stats.buffer_size; }
     /** add more buffers to this pool.
      * \param num_bufs  the number of buffers to add to the pool. */
     void add_bufs(int num_bufs);
@@ -364,7 +380,7 @@ bool t2t_pool<BaseT,derivedTs...> :: alloc(
 
     T * t = new(this,wait_ms)
         T(std::forward<ConstructorArgs>(args)...);
-    ptr->give(t); // base constructor gives initial refcount of 1.
+    ptr->reset(t);
     return (t != NULL);
 }
 
@@ -384,8 +400,7 @@ void t2t_queue<BaseT> :: enqueue(t2t_shared_ptr<T> &_msg)
     static_assert(std::is_base_of<BaseT, T>::value == true,
                   "enqueued type must be derived from "
                   "base type of the queue");
-    BaseT * msg = *_msg;
-    msg->ref();
+    BaseT * msg = _msg.take();
     __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) msg;
     h--;
     h->ok();
@@ -429,14 +444,14 @@ t2t_shared_ptr<BaseT> t2t_queue<BaseT> :: dequeue_multi(
 
 //////////////////////////// T2T_MESSAGE_BASE ////////////////////////////
 
-template <class BaseT, class... DerivedTs>
+template <class BaseT>
 //static class method
-void * t2t_message_base<BaseT,DerivedTs...> :: operator new(
+void * t2t_message_base<BaseT> :: operator new(
     size_t wanted_sz,
-    pool_t *pool,
+    __t2t_pool *pool,
     int wait_ms) throw ()
 {
-    if (wanted_sz > pool_t::buffer_size)
+    if (wanted_sz > pool->get_buffer_size())
     {
         __TS2_ASSERT(BUFFER_SIZE_TOO_BIG_FOR_POOL, false);
         return NULL;
@@ -444,36 +459,16 @@ void * t2t_message_base<BaseT,DerivedTs...> :: operator new(
     BaseT * obj = (BaseT*) pool->_alloc(wait_ms);
     if (obj == NULL)
         return NULL;
-    obj->__t2t_pool = pool;
+    obj->__pool = pool;
     return obj;
 }
 
-template <class BaseT, class... DerivedTs>
+template <class BaseT>
 //static class method
-void t2t_message_base<BaseT,DerivedTs...> :: operator delete(void *ptr)
+void t2t_message_base<BaseT> :: operator delete(void *ptr)
 {
     BaseT * obj = (BaseT*) ptr;
-    obj->__t2t_pool->release(ptr);
-}
-
-template <class BaseT, class... DerivedTs>
-void t2t_message_base<BaseT,DerivedTs...> :: ref(void)
-{
-    refcount++;
-}
-
-template <class BaseT, class... DerivedTs>
-void t2t_message_base<BaseT,DerivedTs...> :: deref(void)
-{
-    int v = refcount--;
-    if (v <= 1)
-        delete this;
-}
-
-template <class BaseT, class... DerivedTs>
-int t2t_message_base<BaseT,DerivedTs...> :: use_count(void) const
-{
-    return std::atomic_load(&refcount);
+    obj->__pool->release(ptr);
 }
 
 //////////////////////////////////////////////////////////////////

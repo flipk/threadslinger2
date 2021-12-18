@@ -129,7 +129,12 @@ struct t2t_shared_ptr {
      * referencing the contained object). */
     bool unique(void) const;
 
-    /** assign, takes another ref() on the object */
+    /** assign, takes another ref() on the object,
+     * also does dynamic_cast.
+     * \note this can take a pointer to a base class and will
+     *    dynamic_cast to the derived type; assumes the types are
+     *    polymorphic, and will set this object to NULL (empty) if
+     *    the dynamic_cast says it's not actually this derived type. */
     template <class BaseT>
     t2t_shared_ptr<T> &operator=(const t2t_shared_ptr<BaseT> &other);
 
@@ -146,6 +151,8 @@ struct t2t_shared_ptr {
     T * operator*(void) const { return ptr; }
 
 private:
+    void ref(void);
+    void deref(void);
     T * ptr;
 };
 
@@ -236,14 +243,14 @@ public:
     t2t_queue(pthread_mutexattr_t *pmattr = NULL,
               pthread_condattr_t *pcattr = NULL);
     virtual ~t2t_queue(void) { }
+
     /** enqueue a message into this queue; the message must come
      *  from a pool of the same type. note the queue is a FIFO.
      * \param msg  message to enqueue
-     * \note   this takes another reference to the contained
-     *      message, so the user's shared_ptr still safely
-     *      references the message when this returns. */
-    template <class T>
-    void enqueue(t2t_shared_ptr<T> &msg);
+     * \note   this does a take() on the shared_ptr, so the user's
+     *     t2t_shared_ptr is now empty. */
+    template <class T> void enqueue(t2t_shared_ptr<T> &msg);
+
     /** dequeue a message from this queue in FIFO order.
      * \param wait_ms  how long to wait: \ref wait_flag
      *           <ul> <li> -1 : wait forever </li>
@@ -287,84 +294,33 @@ public:
 //////////////////////////// T2T_MESSAGE_BASE ////////////////////////////
 
 /** base class for all T2T messages. 
- *  to get a new message, user should call one of the two get()
- *  methods below. messages are constructed with
- *  a refcount of 1. if more than one thread needs to handle this
- *  message, each additional thread should call ref(), which will
- *  increase the refcount by 1.
- *
- *  users should not use delete; use deref() instead. each deref()
- *  decreases refcount by 1. if refcount hits 0, message is
- *  deleted.
- *
- * \param BaseT      the derived data type's base class name.
- * \param DerivedTs  if you want multiple possible messages, then you
- *     need to ensure the pool buffers are big enough for
- *     the largest of your message types; list all message
- *     types here. NOTE they should all be derived from
- *     BaseT and you should have a way in BaseT to figure
- *     out how to cast to the correct message type (i.e.
- *     make destructor virtual (making the type polymorphic)
- *     and then using dynamic_cast<>() (checking return type)). */
-template <class BaseT, class... DerivedTs>
+ * \param BaseT      the derived data type's base class name. */
+template <class BaseT>
 class t2t_message_base
 {
-public:
-    /** a shortcut to \ref t2t_pool for the user to create a
-     *  pool of these objects. */
-    typedef t2t_pool<BaseT,DerivedTs...> pool_t;
-    /** a shortcut to \ref t2t_queue for the user to create a
-     *  queue of these objects. */
-    typedef t2t_queue<BaseT> queue_t;
-
-    /** for convenience, i recommend defining a shared ptr like
-     * this in every derived class you make, it makes
-     *  \ref t2t_shared_ptr::cast()  easier to use. */
-    typedef t2t_shared_ptr<BaseT> sp_t;
-
-    // GROSS: the only way to make "delete" not-public is to make
-    // "new" private, which requires class members to allocate stuff,
-    // that's why we provide get() instead of letting users call
-    // "new".
-
-    /** increase reference count on this message. when you invoke
-     * \ref deref(), the reference count is decreased; if the refcount
-     * hits zero, the object is deleted and returned to the pool it
-     * came from. */
-    void ref(void);
-
-    /** decrease reference count, if it hits zero,
-     *  the message is returned to the pool. note you can call
-     *  \ref ref() if you want to increase the refcount, if needed. */
-    void deref(void);
-
-    /** returns the usage count of this object.
-     * \note this is only advisory! if this object is shared
-     *     amongst threads, the value could change. the only
-     *     value that's really useful is 1, meaning the calling
-     *     thread has the only reference. */
-    int use_count(void) const;
-
 protected:
-    t2t_message_base(void) : refcount(1) { }
+    t2t_message_base(void) : __refcount(0) { }
     virtual ~t2t_message_base(void) { }
-    // user should not use this, use deref() instead.
+    // users don't delete; users should be using t2t_shared_ptr.
     static void operator delete(void *ptr);
 
 private:
-    pool_t * __t2t_pool;
-    std::atomic_int  refcount;
-
-    friend pool_t;  // t2t_pool.alloc is what invokes new().
+    __t2t_pool * __pool;
 
     // this is a 'no-throw' version of operator new,
     // which returns NULL instead of throwing.
     // this is important, because it prevents calling
     // the constructor function on a NULL.
-    // you MUST check the return of this for NULL.
+    // t2t_pool.alloc is what invokes new().
     static void * operator new(size_t wanted_sz,
-                               pool_t *pool,
+                               __t2t_pool *pool,
                                int wait_ms) throw ();
+    template <class poolBaseT,
+              class... poolDerivedTs> friend class t2t_pool;
+
+    // t2t_shared_ptr needs to access __refcount
+    std::atomic_int  __refcount;
+    template <class sharedPtrBaseT> friend class t2t_shared_ptr;
 
     __T2T_EVIL_CONSTRUCTORS(t2t_message_base);
     __T2T_EVIL_NEW(t2t_message_base);
