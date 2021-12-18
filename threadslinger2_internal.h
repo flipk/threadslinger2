@@ -375,8 +375,7 @@ bool t2t_pool<BaseT,derivedTs...> :: alloc(
                   "allocated type must be derived from base type");
     static_assert(buffer_size >= sizeof(T),
                   "allocated type must fit in pool buffer size, please "
-                  "specify all message types in t2t_pool<> (and/or in "
-                  "t2t_message_base<> if you're using ::pool_t)");
+                  "specify all message types in t2t_pool<>!");
 
     T * t = new(this,wait_ms)
         T(std::forward<ConstructorArgs>(args)...);
