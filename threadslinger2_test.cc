@@ -77,7 +77,7 @@ public:
     {
         printf("constructing my_message_derived1 c=%d d=%d\n", c,d);
     }
-    ~my_message_derived1(void)
+    virtual ~my_message_derived1(void)
     {
         printf("destructing my_message_derived1 c=%d d=%d\n", c,d);
     }
@@ -106,7 +106,7 @@ public:
     {
         printf("constructing my_message_derived2 e=%d f=%d g=%d\n", e,f,g);
     }
-    ~my_message_derived2(void)
+    virtual ~my_message_derived2(void)
     {
         printf("destructing my_message_derived2 e=%d f=%d g=%d\n", e,f,g);
     }
@@ -128,12 +128,14 @@ void printstats(ts2::t2t_pool<BaseT,derivedTs...> *pool,
     cout << what << ": " << stats << endl;
 }
 
-static void my_ts2_assert_handler(ts2::ts2_error_t e, bool fatal,
-                                  const char *filename, int lineno)
+static void
+my_ts2_assert_handler(ts2::ts2_error_t e, bool fatal,
+                      const char *filename, int lineno)
 {
     fprintf(stderr,
-            "\n\nERROR: ThreadSlinger2 ASSERTION %d at %s:%d\n\n",
-            e, filename, lineno);
+            "\n\nERROR: ThreadSlinger2 ASSERTION %d (%s) at %s:%d\n\n",
+            e, ts2::ts2_error_types[e], filename, lineno);
+    // i want a core dump that i can gdb
     kill(0, SIGABRT);
 }
 
@@ -175,7 +177,7 @@ int main(int argc, char ** argv)
         myqueue1.enqueue(spmb);
     }
     else
-        printf("FAILED\n");
+        printf("ALLOC FAILED\n");
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
@@ -190,7 +192,7 @@ int main(int argc, char ** argv)
         myqueue2.enqueue(spmd1);
     }
     else
-        printf("FAILED\n");
+        printf("ALLOC FAILED\n");
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");

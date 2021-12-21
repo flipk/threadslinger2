@@ -5,6 +5,24 @@ namespace ThreadSlinger2 {
 
 //////////////////////////// ERROR HANDLING ////////////////////////////
 
+const char * ts2_error_types[T2T_NUM_ERRORS] = {
+
+    // please keep this in sync with ts2_error_t
+
+    "zero entry not used",
+    "BUFFER_SIZE_TOO_BIG_FOR_POOL",
+    "T2T_LINKS_MAGIC_CORRUPT",
+    "T2T_LINKS_ADD_ALREADY_ON_LIST",
+    "T2T_LINKS_REMOVE_NOT_ON_LIST",
+    "T2T_POOL_RELEASE_ALREADY_ON_LIST",
+    "DOUBLE_FREE",
+    "T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE",
+    "T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST",
+    "T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST",
+    "T2T_QUEUE_SET_EMPTY",
+    "T2T_ENQUEUE_EMPTY_POINTER"
+};
+
 static void default_ts2_assert_handler(ts2_error_t e,
                                        bool fatal,
                                        const char *filename,
@@ -48,9 +66,9 @@ struct __t2t_container
     {
         dummy = 0;
     }
-    void *operator new(size_t ignore_sz, int real_size)
+    void *operator new(size_t struct_sz, int real_size)
     {
-        return malloc(real_size + sizeof(__t2t_container));
+        return malloc(struct_sz + real_size);
     }
     void  operator delete(void *ptr)
     {
@@ -99,8 +117,10 @@ void __t2t_pool :: add_bufs(int num_bufs)
 }
 
 // wait_ms (see enum wait_flag):
-// -2 : grow if empty, -1 : wait forever,
-//  0 : don't wait, >0 wait for some mS
+// -2 : grow if empty
+// -1 : wait forever,
+//  0 : don't wait
+// >0 : wait for some mS
 void * __t2t_pool :: _alloc(int wait_ms)
 {
     __t2t_buffer_hdr * h = NULL;
@@ -320,7 +340,7 @@ __t2t_queue_set :: _add_queue(__t2t_queue *q, int id)
     {
         __t2t_queue * tq;
         for (tq = qs.get_next(); tq != &qs; tq = tq->get_next())
-            if (tq->id < id)
+            if (tq->id > id)
                 break;
         tq->add_tail(q);
     }
@@ -357,7 +377,7 @@ __t2t_queue_set :: _dequeue(int wait_ms, int *id)
 
     do {
         __t2t_queue * q0 = qs.get_next();
-        for (q = q0; q != &qs; q = (__t2t_queue *)q->next)
+        for (q = q0; q != &qs; q = q->get_next())
         {
             if (q->buffers.empty() == false)
             {

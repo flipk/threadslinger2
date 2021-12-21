@@ -288,7 +288,7 @@ struct __t2t_timespec : public timespec
 };
 
 /*
- ////////////////// SOME NOTES ON LOCKING //////////////////
+    ////////////////// SOME NOTES ON LOCKING //////////////////
 
 For a single queue which must support only enqueue and dequeue
 primitives, locking is quite simple. Each queue needs a simple mutex
@@ -352,11 +352,11 @@ class __t2t_rwlock
 {
     pthread_rwlock_t  _rwlock;
 public:
-    __t2t_rwlock(void) { pthread_rwlock_init(&_rwlock, NULL); }
+    __t2t_rwlock(void)  { pthread_rwlock_init   (&_rwlock, NULL); }
     ~__t2t_rwlock(void) { pthread_rwlock_destroy(&_rwlock); }
-    void rdlock(void) { pthread_rwlock_rdlock(&_rwlock); }
-    void wrlock(void) { pthread_rwlock_wrlock(&_rwlock); }
-    void unlock(void) { pthread_rwlock_unlock(&_rwlock); }
+    void rdlock(void)   { pthread_rwlock_rdlock (&_rwlock); }
+    void wrlock(void)   { pthread_rwlock_wrlock (&_rwlock); }
+    void unlock(void)   { pthread_rwlock_unlock (&_rwlock); }
 };
 
 //////////////////////////// __T2T_QUEUE ////////////////////////////
@@ -474,6 +474,9 @@ bool t2t_pool<BaseT,derivedTs...> :: alloc(
     t2t_shared_ptr<T> * ptr, int wait_ms,
     ConstructorArgs&&... args)
 {
+    static_assert(std::is_base_of<t2t_message_base<BaseT>,
+                  BaseT>::value == true,
+                  "allocated type must be derived from t2t_message_base");
     static_assert(std::is_base_of<BaseT, T>::value == true,
                   "allocated type must be derived from base type");
     static_assert(buffer_size >= sizeof(T),
@@ -503,10 +506,17 @@ void t2t_queue<BaseT> :: enqueue(t2t_shared_ptr<T> &_msg)
                   "enqueued type must be derived from "
                   "base type of the queue");
     BaseT * msg = _msg.take();
-    __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) msg;
-    h--;
-    h->ok();
-    q._enqueue_tail(h);
+    if (msg)
+    {
+        __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) msg;
+        h--;
+        h->ok();
+        q._enqueue_tail(h);
+    }
+    else
+    {
+        __TS2_ASSERT(T2T_ENQUEUE_EMPTY_POINTER,false);
+    }
 }
 
 template <class BaseT>
@@ -540,12 +550,14 @@ t2t_queue_set<BaseT> :: ~t2t_queue_set(void)
 template <class BaseT>
 void t2t_queue_set<BaseT> :: add_queue(t2t_queue<BaseT> *q, int id)
 {
+    // __t2t_queue_set does its own locking.
     qs._add_queue(&q->q, id);
 }
 
 template <class BaseT>
 void t2t_queue_set<BaseT> :: remove_queue(t2t_queue<BaseT> *q)
 {
+    // __t2t_queue_set does its own locking.
     qs._remove_queue(&q->q);
 }
 
@@ -554,6 +566,7 @@ t2t_shared_ptr<BaseT> t2t_queue_set<BaseT> :: dequeue(int wait_ms,
                                                       int *id /*= NULL*/)
 {
     t2t_shared_ptr<BaseT>  ret;
+    // __t2t_queue_set does its own locking.
     __t2t_buffer_hdr * h = qs._dequeue(wait_ms,id);
     if (h)
     {
