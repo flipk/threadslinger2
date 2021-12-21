@@ -20,6 +20,8 @@ exit 0
 #endif
 
 #include "threadslinger2.h"
+#include <sys/types.h>
+#include <signal.h>
 
 using namespace std;
 
@@ -33,6 +35,7 @@ class my_message_base : public ts2::t2t_message_base<my_message_base>
 public:
     // convenience
     typedef ts2::t2t_queue<my_message_base> queue_t;
+    typedef ts2::t2t_queue_set<my_message_base> queue_set_t;
     typedef ts2::t2t_shared_ptr<my_message_base> sp_t;
 
     enum msgtype { TYPE_B, TYPE_D1, TYPE_D2 } t;
@@ -94,6 +97,7 @@ public:
                           my_message_derived2> pool2_t;
     typedef ts2::t2t_shared_ptr<my_message_derived2> sp_t;
 
+    // test hack: if e==-1, that tells recipient to exit.
     int e;
     int f;
     int g;
@@ -124,13 +128,14 @@ void printstats(ts2::t2t_pool<BaseT,derivedTs...> *pool,
     cout << what << ": " << stats << endl;
 }
 
-bool die_already = false;
-
-struct thread_info {
-    static const int max_queues = 100; // arbitrary
-    int num_queues;
-    my_message_base::queue_t* qs[max_queues];
-};
+static void my_ts2_assert_handler(ts2::ts2_error_t e, bool fatal,
+                                  const char *filename, int lineno)
+{
+    fprintf(stderr,
+            "\n\nERROR: ThreadSlinger2 ASSERTION %d at %s:%d\n\n",
+            e, filename, lineno);
+    kill(0, SIGABRT);
+}
 
 void *reader_thread(void *arg);
 
@@ -147,6 +152,12 @@ int main(int argc, char ** argv)
     my_message_derived2::pool2_t  mypool2(1,10,&mattr,&cattr);
     my_message_base    ::queue_t  myqueue1(    &mattr,&cattr);
     my_message_base    ::queue_t  myqueue2(    &mattr,&cattr);
+    my_message_base::queue_set_t      qset(    &mattr,&cattr);
+
+    qset.add_queue(&myqueue1, 1);
+    qset.add_queue(&myqueue2, 2);
+
+    ts2::ts2_assert_handler = &my_ts2_assert_handler;
 
     pthread_mutexattr_destroy(&mattr);
     pthread_condattr_destroy(&cattr);
@@ -202,21 +213,34 @@ int main(int argc, char ** argv)
     printf("\nnow starting reader thread:\n");
 
     // now that three enqueues have been done, start the reader.
-    thread_info  ti;
-
-    ti.num_queues = 0;
-    ti.qs[ti.num_queues++] = &myqueue1;
-    ti.qs[ti.num_queues++] = &myqueue2;
 
     pthread_attr_t       attr;
     pthread_attr_init   (&attr);
     pthread_t       id;
-    pthread_create(&id, &attr, &reader_thread, &ti);
+    pthread_create(&id, &attr, &reader_thread, &qset);
     pthread_attr_destroy(&attr);
 
+    // the reader should now dequeue the backlog we put
+    // in above (in the proper priority order) and then
+    // it should hit its timeout case a couple of times.
     sleep(1);
 
-    die_already = true;
+
+    printf("attempting fourth alloc for EXIT message\n");
+    if (mypool2.alloc(&spmd2,
+                      1000,
+                      12,13,-1,14,15)) // e=-1 means exit!
+    {
+        printf("enqueuing EXIT message NOW\n");
+        myqueue1.enqueue(spmd2);
+    }
+    else
+        printf("FAILED\n");
+
+
+    // now that we've sent the EXIT message, the thread
+    // should be exiting soon, so wait for it, and then
+    // we can shut down gracefully.
     pthread_join(id, NULL);
 
     printstats(&mypool1, "1");
@@ -227,21 +251,22 @@ int main(int argc, char ** argv)
 
 void *reader_thread(void *arg)
 {
-    thread_info * ti = (thread_info *) arg;
+    my_message_base::queue_set_t *qset =
+        (my_message_base::queue_set_t *) arg;
 
-    while (!die_already)
+    bool keep_going = true;
+    while (keep_going)
     {
         my_message_base::sp_t x;
-        int which_q = -1;
+        int qid = -1;
 
         printf("READER entering dequeue()\n");
 
-        x = my_message_base::queue_t::dequeue_multi(
-            ti->num_queues, ti->qs, &which_q, 250);
+        x = qset->dequeue(250, &qid);
 
         if (x)
         {
-            printf("READER GOT MSG on queue %d:\n", which_q);
+            printf("READER GOT MSG on queue %d:\n", qid);
             x->print();
 
             my_message_derived1::sp_t  y;
@@ -253,8 +278,15 @@ void *reader_thread(void *arg)
             // this one tests the casting constructor
             my_message_derived2::sp_t  z = x;
             if (z)
+            {
                 printf("dynamic cast to md2 is OK! e,f,g = %d,%d,%d\n",
                        z->e, z->f, z->g);
+                if (z->e == -1)
+                {
+                    printf("This is an EXIT message!\n");
+                    keep_going = false;
+                }
+            }
         }
         else
             printf("READER GOT NULL\n");

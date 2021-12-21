@@ -47,7 +47,7 @@ struct largest_type<T, U, Ts...>
     static const int size = sizeof(type);
 };
 
-//////////////////////////// MY SHARED_PTR ////////////////////////////
+//////////////////////////// T2T_SHARED_PTR ////////////////////////////
 
 template<class T>
 t2t_shared_ptr<T> :: t2t_shared_ptr(T * _ptr /*= NULL*/)
@@ -165,8 +165,10 @@ void t2t_shared_ptr<T> :: deref(void)
 #define __TS2_ASSERT(err,fatal) \
     ts2_assert_handler(err,fatal, __FILE__, __LINE__)
 
-//////////////////////////// T2T_LINKS ////////////////////////////
+//////////////////////////// __T2T_LINKS ////////////////////////////
 
+// this can't really have a constructor because it gets pointer-cast
+// all over the place.
 template <class T>
 struct __t2t_links
 {
@@ -236,30 +238,29 @@ struct __t2t_links
         prev->next = next;
         next = prev = this;
     }
-    T * get_head(void)
+    T * get_next(void)
     {
         ok();
         return (T*) next;
     }
 };
 
-//////////////////////////// T2T_BUFFER_HDR ////////////////////////////
+//////////////////////////// __T2T_BUFFER_HDR ////////////////////////////
 
 struct __t2t_buffer_hdr : public __t2t_links<__t2t_buffer_hdr>
 {
     bool inuse;
-    uint64_t data[0]; // forces entire struct to 8 byte alignment
     void init(void)
     {
         __t2t_links::init();
         inuse = false;
     }
-};
+} __attribute__ ((aligned (sizeof(void*))));
 
 static_assert(std::is_trivial<__t2t_buffer_hdr>::value == true,
               "class __t2t_buffer_hdr must always be trivial");
 
-//////////////////////////// T2T_TIMESPEC ////////////////////////////
+//////////////////////////// __T2T_TIMESPEC ////////////////////////////
 
 struct __t2t_timespec : public timespec
 {
@@ -286,34 +287,41 @@ struct __t2t_timespec : public timespec
     }
 };
 
-//////////////////////////// T2T_QUEUE ////////////////////////////
+//////////////////////////// __T2T_QUEUE ////////////////////////////
 
-class __t2t_queue
+class __t2t_queue : public __t2t_links<__t2t_queue>
 {
-    pthread_mutex_t  mutex;
-    pthread_cond_t   cond;
-    clockid_t        clk_id;
-    pthread_cond_t * waiting_cond;
+    friend class __t2t_queue_set;
+    void set_pmutexpcond(pthread_mutex_t *nm = NULL,
+                         pthread_cond_t *nc = NULL)
+    {
+        pthread_mutex_lock(&_mutex);
+        pmutex = nm ? nm : &_mutex;
+        pcond = nc;
+        pthread_mutex_unlock(&_mutex);
+    }
+    pthread_mutex_t * pmutex;
+    pthread_cond_t  * pcond;
+    pthread_mutex_t   _mutex;
+    pthread_cond_t    _cond;
+    clockid_t         clk_id;
     __t2t_buffer_hdr  buffers;
-    void   lock(void) { pthread_mutex_lock  (&mutex); }
-    void unlock(void) { pthread_mutex_unlock(&mutex); }
+    class Lock {
+        pthread_mutex_t *m;
+    public:
+        Lock(pthread_mutex_t *_m) : m(_m) { pthread_mutex_lock(m); }
+        ~Lock(void) { pthread_mutex_unlock(m); }
+    };
+    int id;
 public:
     __t2t_queue(pthread_mutexattr_t *pmattr,
                 pthread_condattr_t *pcattr);
     ~__t2t_queue(void);
-    bool _validate(__t2t_buffer_hdr *h)
-    {
-        return buffers.validate(h);
-    }
+    bool _validate(__t2t_buffer_hdr *h) { return buffers.validate(h); }
     // -1 : wait forever
     //  0 : dont wait, just return
     // >0 : wait for some number of mS
     __t2t_buffer_hdr *_dequeue(int wait_ms);
-    static __t2t_buffer_hdr *_dequeue_multi(
-        int num_queues,
-        __t2t_queue **queues,
-        int *which_queue,
-        int wait_ms);
     // a pool should be a stack, to keep caches hotter.
     void _enqueue(__t2t_buffer_hdr *h);
     // a queue should be a fifo, to keep msgs in order.
@@ -324,7 +332,23 @@ public:
     __T2T_EVIL_DEFAULT_CONSTRUCTOR(__t2t_queue);
 };
 
-//////////////////////////// T2T_POOL ////////////////////////////
+//////////////////////////// __T2T_QUEUE_SET ////////////////////////////
+
+class __t2t_queue_set
+{
+    pthread_mutex_t   set_mutex;
+    pthread_cond_t    set_cond;
+    __t2t_links<__t2t_queue> qs;
+public:
+    __t2t_queue_set(pthread_mutexattr_t *pmattr = NULL,
+                    pthread_condattr_t  *pcattr = NULL);
+    ~__t2t_queue_set(void);
+    void _add_queue(__t2t_queue *q, int id);
+    void _remove_queue(__t2t_queue *q);
+    __t2t_buffer_hdr * _dequeue(int wait_ms, int *id);
+};
+
+//////////////////////////// __T2T_POOL ////////////////////////////
 
 struct __t2t_container; // forward
 
@@ -363,7 +387,7 @@ public:
 
 #elif __T2T_INCLUDE_INTERNAL__ == 2
 
-//////////////////////////// T2T_POOL ////////////////////////////
+//////////////////////////// T2T_POOL<> ////////////////////////////
 
 template <class BaseT, class... derivedTs>
 template <class T, typename... ConstructorArgs>
@@ -383,7 +407,7 @@ bool t2t_pool<BaseT,derivedTs...> :: alloc(
     return (t != NULL);
 }
 
-//////////////////////////// T2T_QUEUE ////////////////////////////
+//////////////////////////// T2T_QUEUE<> ////////////////////////////
 
 template <class BaseT>
 t2t_queue<BaseT> :: t2t_queue(pthread_mutexattr_t *pmattr /*= NULL*/,
@@ -419,20 +443,39 @@ t2t_shared_ptr<BaseT>   t2t_queue<BaseT> :: dequeue(int wait_ms)
     return ret;
 }
 
+//////////////////////////// T2T_QUEUE_SET<> ////////////////////////////
+
 template <class BaseT>
-// static class method
-t2t_shared_ptr<BaseT> t2t_queue<BaseT> :: dequeue_multi(
-    int num_queues,
-    t2t_queue<BaseT> **queues,
-    int *which_q,
-    int wait_ms)
+t2t_queue_set<BaseT> :: t2t_queue_set(
+    pthread_mutexattr_t *pmattr /*= NULL*/,
+    pthread_condattr_t  *pcattr /*= NULL*/)
+    : qs(pmattr, pcattr)
+{
+}
+
+template <class BaseT>
+t2t_queue_set<BaseT> :: ~t2t_queue_set(void)
+{
+}
+
+template <class BaseT>
+void t2t_queue_set<BaseT> :: add_queue(t2t_queue<BaseT> *q, int id)
+{
+    qs._add_queue(&q->q, id);
+}
+
+template <class BaseT>
+void t2t_queue_set<BaseT> :: remove_queue(t2t_queue<BaseT> *q)
+{
+    qs._remove_queue(&q->q);
+}
+
+template <class BaseT>
+t2t_shared_ptr<BaseT> t2t_queue_set<BaseT> :: dequeue(int wait_ms,
+                                                      int *id /*= NULL*/)
 {
     t2t_shared_ptr<BaseT>  ret;
-    __t2t_queue *qs[num_queues];
-    for (int ind = 0; ind < num_queues; ind++)
-        qs[ind] = &queues[ind]->q;
-    __t2t_buffer_hdr * h = __t2t_queue::_dequeue_multi(
-        num_queues, qs, which_q, wait_ms);
+    __t2t_buffer_hdr * h = qs._dequeue(wait_ms,id);
     if (h)
     {
         h++;
@@ -441,7 +484,7 @@ t2t_shared_ptr<BaseT> t2t_queue<BaseT> :: dequeue_multi(
     return ret;
 }
 
-//////////////////////////// T2T_MESSAGE_BASE ////////////////////////////
+//////////////////////////// T2T_MESSAGE_BASE<> ////////////////////////////
 
 template <class BaseT>
 //static class method

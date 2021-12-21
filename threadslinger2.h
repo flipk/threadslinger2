@@ -37,7 +37,8 @@ enum ts2_error_t {
     // AT THE SAME TIME SO DONT DO THAT
     T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE     = 7, //!< multiple threads bad
     T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST    = 8, //!< not on this list
-    T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST   = 9  //!< already on a list
+    T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST   = 9, //!< already on a list
+    T2T_QUEUE_SET_EMPTY                   = 10 //!< queue set empty
 };
 
 /** defines the signature of any user-supplied assertion handler
@@ -228,6 +229,7 @@ public:
 template <class BaseT>
 class t2t_queue
 {
+    template <class queuesetBaseT> friend class t2t_queue_set;
     __t2t_queue q;
 public:
     /** constructor for a queue.
@@ -260,35 +262,68 @@ public:
      *                     to become available, then give up </li> </ul> */
     t2t_shared_ptr<BaseT>  dequeue(int wait_ms);
 
-    /** watch multiple queues and dequeue from the first queue to have
-     * a message waiting.
-     * \param num_queues the size of the queues array to follow
-     * \param queues an array of pointers to queues to check; note the
-     *               order of this array implies priority: if several
-     *               queues have messages waiting, you'll get the
-     *               first message from the first queue first. it will
-     *               only behave according to the wait_ms parameter if
-     *               all specified queues are empty.
-     * \param which_q if non-NULL, returns the index in the array
-     *                specifying which queue the returned message came
-     *                from. if we timed out and returned NULL, this
-     *                will be written with -1. if this is NULL,
-     *                nothing is written (assumes user didn't care
-     *                which queue it came from).
+    __T2T_EVIL_CONSTRUCTORS(t2t_queue<BaseT>);
+    __T2T_EVIL_NEW(t2t_queue<BaseT>);
+    __T2T_EVIL_DEFAULT_CONSTRUCTOR(t2t_queue<BaseT>);
+};
+
+//////////////////////////// T2T_QUEUE_SET ////////////////////////////
+
+/** template for a set of queues.
+ * \param BaseT the user's base message class that all member queues
+ *              are based on.
+ */
+template <class BaseT>
+class t2t_queue_set
+{
+    __t2t_queue_set  qs;
+public:
+    /** constructor, requires attributes for the mutex and condition
+     * used when dequeuing from the set.
+     * \note when a t2t_queue has been added to this set, that queue
+     *       uses the mutex and condition from this set, rather than
+     *       their own (in other words, all queues which are added
+     *       to this set will use the \em same mutex and condition,
+     *       in order to close certain race conditions). */
+    t2t_queue_set(pthread_mutexattr_t *pmattr = NULL,
+                  pthread_condattr_t  *pcattr = NULL);
+
+    /** destructor will clean up the list of queues. */
+    ~t2t_queue_set(void);
+
+    /** add a queue to this set. an identifier will be associated
+     * with the queue; this identifier is returned in dequeue().
+     * may be done at any time.
+     * \param q  the t2t_queue to add to this set. the queue must
+     *           be based on the same base message class as this
+     *           set.
+     * \param id the identifier for this queue. this identifier
+     *    will be returned to the caller of dequeue(). this value
+     *    will also serve as the priority of this queue relative to the
+     *    other queues in this set. if all queues are empty at the
+     *    entry to dequeue, this value will have no effect; dequeue()
+     *    will wake up and return the first message enqueued to any of
+     *    the queues in this set. \em however, if multiple queues have
+     *    waiting messages, this value will determine which queues is
+     *    dequeued first. */
+    void add_queue(t2t_queue<BaseT> *q, int id);
+
+    /** remove a queue from this set. may be done at any time. */
+    void remove_queue(t2t_queue<BaseT> *q);
+
+    /** monitor all queues added to this set, and dequeue a message
+     * as soon as one becomes available in any queues in this set.
      * \param wait_ms  how long to wait: \ref wait_flag
      *           <ul> <li> -1 : wait forever </li>
      *                <li> 0 : don't wait at all, if the pool is empty,
      *                     return NULL immediately. </li>
      *                <li> >0 : wait for some milliseconds for a buffer
-     *                     to become available, then give up </li> </ul> */
-    static t2t_shared_ptr<BaseT> dequeue_multi(int num_queues,
-                             t2t_queue<BaseT> **queues,
-                             int *which_q,
-                             int wait_ms);
-
-    __T2T_EVIL_CONSTRUCTORS(t2t_queue<BaseT>);
-    __T2T_EVIL_NEW(t2t_queue<BaseT>);
-    __T2T_EVIL_DEFAULT_CONSTRUCTOR(t2t_queue<BaseT>);
+     *                     to become available, then give up </li> </ul>
+     * \param id  a pointer to a user supplied variable to receive the
+     *      identifier passed to add_queue(). this will inform the user
+     *      which queue became active. if the user does not require this
+     *      information, this argument may be omitted (default to NULL). */
+    t2t_shared_ptr<BaseT> dequeue(int wait_ms, int *id = NULL);
 };
 
 //////////////////////////// T2T_MESSAGE_BASE ////////////////////////////
@@ -511,10 +546,8 @@ grow if it is currently empty.
 \endcode
 
 The recipient thread then dequeues from this queue using
-\ref ThreadSlinger2::t2t_queue::dequeue  (or
-\ref ThreadSlinger2::t2t_queue::dequeue_multi)
-to process the
-messages in its own time.
+\ref ThreadSlinger2::t2t_queue::dequeue
+to process the messages in its own time.
 
 \ref ThreadSlinger2::t2t_shared_ptr has a helpful
 \ref ThreadSlinger2::t2t_shared_ptr::cast
