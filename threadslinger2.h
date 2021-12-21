@@ -250,7 +250,9 @@ public:
      *  from a pool of the same type. note the queue is a FIFO.
      * \param msg  message to enqueue
      * \note   this does a take() on the shared_ptr, so the user's
-     *     t2t_shared_ptr is now empty. */
+     *     t2t_shared_ptr is now empty.
+     * \note   it is safe for multiple threads to enqueue messages
+     *     to a single queue. that is an expected use case. */
     template <class T> void enqueue(t2t_shared_ptr<T> &msg);
 
     /** dequeue a message from this queue in FIFO order.
@@ -259,7 +261,17 @@ public:
      *                <li> 0 : don't wait at all, if the pool is empty,
      *                     return NULL immediately. </li>
      *                <li> >0 : wait for some milliseconds for a buffer
-     *                     to become available, then give up </li> </ul> */
+     *                     to become available, then give up </li> </ul>
+     * \note the dequeue method is NOT safe to call from multiple
+     *       threads on the same queue at the same time. (multiple
+     *       threads dequeueing from different queues is fine.)
+     *       someone is going to want to try "load balancing" by
+     *       having multiple threads dequeue from the same queue to
+     *       spread out requests to multiple cores; this is not
+     *       supported by this API, is not safe, and will probably
+     *       throw assertions.
+     * \note it is NOT safe to call this dequeue method if this
+     *       queue has been added to a t2t_queue_set. */
     t2t_shared_ptr<BaseT>  dequeue(int wait_ms);
 
     __T2T_EVIL_CONSTRUCTORS(t2t_queue<BaseT>);
@@ -284,7 +296,10 @@ public:
      *       uses the mutex and condition from this set, rather than
      *       their own (in other words, all queues which are added
      *       to this set will use the \em same mutex and condition,
-     *       in order to close certain race conditions). */
+     *       in order to close certain race conditions).
+     * \note this class is not multi-thread safe, that is you should
+     *       not allow one thread to do add/remove while another does
+     *       dequeue. that would be very bad. */
     t2t_queue_set(pthread_mutexattr_t *pmattr = NULL,
                   pthread_condattr_t  *pcattr = NULL);
 
@@ -305,10 +320,16 @@ public:
      *    will wake up and return the first message enqueued to any of
      *    the queues in this set. \em however, if multiple queues have
      *    waiting messages, this value will determine which queues is
-     *    dequeued first. */
+     *    dequeued first.
+     * \note this class is not multi-thread safe, that is you should
+     *       not allow one thread to do add/remove while another does
+     *       dequeue. that would be very bad. */
     void add_queue(t2t_queue<BaseT> *q, int id);
 
-    /** remove a queue from this set. may be done at any time. */
+    /** remove a queue from this set. may be done at any time.
+     * \note this class is not multi-thread safe, that is you should
+     *       not allow one thread to do add/remove while another does
+     *       dequeue. that would be very bad. */
     void remove_queue(t2t_queue<BaseT> *q);
 
     /** monitor all queues added to this set, and dequeue a message
@@ -322,7 +343,14 @@ public:
      * \param id  a pointer to a user supplied variable to receive the
      *      identifier passed to add_queue(). this will inform the user
      *      which queue became active. if the user does not require this
-     *      information, this argument may be omitted (default to NULL). */
+     *      information, this argument may be omitted (default to NULL).
+     * \note this class is not multi-thread safe, that is you should
+     *       not allow one thread to do add/remove while another does
+     *       dequeue. that would be very bad.
+     * \note the dequeue method is NOT safe to call from multiple
+     *       threads at the same time.
+     * \note it is NOT safe to call an individual queue's dequeue
+     *       method if that queue has been added to a set. */
     t2t_shared_ptr<BaseT> dequeue(int wait_ms, int *id = NULL);
 };
 

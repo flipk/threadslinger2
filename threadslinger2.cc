@@ -186,7 +186,9 @@ __t2t_queue :: ~__t2t_queue(void)
 __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
 {
     __t2t_buffer_hdr * h = NULL;
+    _rwlock.rdlock();
     Lock  l(pmutex);
+    _rwlock.unlock();
     if (pcond != NULL)
     {
         __TS2_ASSERT(T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE,false);
@@ -198,7 +200,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
         pcond = &_cond;
         while (buffers.empty())
         {
-            pthread_cond_wait(pcond, pmutex);
+            pthread_cond_wait(pcond, l.m);
         }
         pcond = NULL;
     }
@@ -224,7 +226,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
                 ts += t;
                 first = false;
             }
-            int ret = pthread_cond_timedwait(pcond, pmutex, &ts);
+            int ret = pthread_cond_timedwait(pcond, l.m, &ts);
             if (ret != 0)
                 timed_out = true;
         }
@@ -252,7 +254,9 @@ void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
     }
     pthread_cond_t *local_pcond;
     {
+        _rwlock.rdlock();
         Lock l(pmutex);
+        _rwlock.unlock();
         buffers.add_head(h);
         local_pcond = pcond;
     }
@@ -270,7 +274,9 @@ void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
     }
     pthread_cond_t *pcond;
     {
+        _rwlock.rdlock();
         Lock l(pmutex);
+        _rwlock.unlock();
         buffers.add_tail(h);
         pcond = pcond;
     }
