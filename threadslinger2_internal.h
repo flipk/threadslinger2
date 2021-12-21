@@ -338,6 +338,7 @@ class __t2t_queue_set
 {
     pthread_mutex_t   set_mutex;
     pthread_cond_t    set_cond;
+    clockid_t         clk_id;
     __t2t_links<__t2t_queue> qs;
 public:
     __t2t_queue_set(pthread_mutexattr_t *pmattr = NULL,

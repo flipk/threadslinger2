@@ -286,6 +286,12 @@ __t2t_queue_set ::__t2t_queue_set(pthread_mutexattr_t *pmattr /*= NULL*/,
     qs.init();
     pthread_mutex_init(&set_mutex, pmattr);
     pthread_cond_init(&set_cond, pcattr);
+
+    if (pcattr)
+        pthread_condattr_getclock(pcattr, &clk_id);
+    else
+        // the default condattr clock appears to be REALTIME
+        clk_id = CLOCK_REALTIME;
 }
 
 __t2t_queue_set :: ~__t2t_queue_set(void)
@@ -368,7 +374,7 @@ __t2t_queue_set :: _dequeue(int wait_ms, int *id)
             if (first)
             {
                 __t2t_timespec t(wait_ms);
-                ts.getNow(q0->clk_id);
+                ts.getNow(clk_id);
                 ts += t;
                 first = false;
             }
