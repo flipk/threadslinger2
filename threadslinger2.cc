@@ -277,7 +277,7 @@ void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
         _rwlock.rdlock();
         Lock l(pmutex);
         _rwlock.unlock();
-        buffers.add_head(h);
+        buffers.add_next(h);
         local_pcond = pcond;
     }
     if (local_pcond)
@@ -297,8 +297,8 @@ void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
         _rwlock.rdlock();
         Lock l(pmutex);
         _rwlock.unlock();
-        buffers.add_tail(h);
         pcond = pcond;
+        buffers.add_prev(h);
     }
     if (pcond)
         pthread_cond_signal(pcond);
@@ -335,14 +335,14 @@ __t2t_queue_set :: _add_queue(__t2t_queue *q, int id)
     __t2t_queue::Lock l(&set_mutex);
 
     if (qs.empty())
-        qs.add_tail(q);
+        qs.add_next(q);
     else
     {
         __t2t_queue * tq;
         for (tq = qs.get_next(); tq != &qs; tq = tq->get_next())
             if (tq->id > id)
                 break;
-        tq->add_tail(q);
+        tq->add_prev(q);
     }
     q->set_pmutexpcond(&set_mutex, &set_cond);
     q->id = id;

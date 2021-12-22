@@ -194,8 +194,9 @@ struct __t2t_links
     {
         return (ok() && (next == this) && (prev == this));
     }
-    // a pool should be a stack to keep caches hot
-    void add_head(T *item)
+    // a pool should be a stack to keep caches hot, so
+    // push to the same end you pop from.
+    void add_next(T *item)
     {
         ok();
         if (item->list != NULL)
@@ -208,8 +209,9 @@ struct __t2t_links
         next = item;
         item->list = this;
     }
-    // a queue should be a fifo to keep msgs in order
-    void add_tail(T *item)
+    // a queue should be a fifo to keep msgs in order, so
+    // push to the back of the list and pop from the front.
+    void add_prev(T *item)
     {
         ok();
         if (item->list != NULL)
