@@ -237,7 +237,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
         bool timed_out = false;
         __t2t_timespec  ts;
         pcond = &_cond;
-        while (buffers.empty())
+        while (buffers.empty() && !timed_out)
         {
             if (first)
             {
@@ -292,16 +292,16 @@ void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
         __TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return;
     }
-    pthread_cond_t *pcond;
+    pthread_cond_t *local_pcond;
     {
         _rwlock.rdlock();
         Lock l(pmutex);
         _rwlock.unlock();
-        pcond = pcond;
         buffers.add_prev(h);
+        local_pcond = pcond;
     }
-    if (pcond)
-        pthread_cond_signal(pcond);
+    if (local_pcond)
+        pthread_cond_signal(local_pcond);
 }
 
 //////////////////////////// __T2T_QUEUE_SET ////////////////////////////
