@@ -443,7 +443,7 @@ std::ostream &operator<<(std::ostream &strm,
 
 /** \mainpage  Threadslinger 2: message pools and queues
 
-Overview
+\section Overview Overview
 
 Classes of interest provided by this library:
  <ul>
@@ -529,7 +529,7 @@ This API allows you to do the following:
 
   </ul>
 
-Rules:
+\section Rules Rules
 
    <ul>
    <li> All messages must derive from t2t_message_base<> template. They
@@ -539,7 +539,19 @@ Rules:
    <li> The argument to the t2t_message_base<> template must be the name
         of the class which is deriving from it; that is to say, all
         message classes deriving from t2t_message_base<> must be of the
-        form:  "class MY_MSG : public t2t_message_base<MY_MSG>".
+        form:
+\code
+class MY_MSG_BASE : public ThreadSlinger2::t2t_message_base<MY_MSG>
+{ <fields and methods here> }
+
+[optional, if desired:]
+class MY_MSG_DERIVED_TYPE1 : public MY_MSG_BASE
+{ <fields and methods here> }
+
+[optional, if desired:]
+class MY_MSG_DERIVED_TYPE2 : public MY_MSG_BASE
+{ <fields and methods here> }
+\endcode
 
    <li> A t2t_pool<> must be declared using a class derived from
         t2t_message_base<> as the first argument.  A t2t_pool<> may also
@@ -549,6 +561,17 @@ Rules:
         derived from that first argument can be allocated from this pool,
         as long as the buffers in the pool are large enough.
 
+\code
+ThreadSlinger2::t2t_pool<MY_MSG_BASE,
+                         MY_MSG_DERIVED_TYPE1,
+                         MY_MSG_DERIVED_TYPE2>   my_msg_pool(
+                                  num_initial_buffers,
+                                  buffers_to_add_during_grow,
+                                  mutex_attrs, cond_attrs);
+
+// this pool contains buffers sized by the largest derived type.
+\endcode
+
    <li> A t2t_queue<> must be declared using a class derived from
         t2t_message_base<> (the same class used as the first arg to
         t2t_pool<>).  That queue can carry any message class derived
@@ -557,14 +580,38 @@ Rules:
         user to use the casting constructor or casting assignment
         operator of t2t_shared_ptr to get to the derived type.
 
+\code
+ThreadSlinger2::t2t_queue<MY_MSG_BASE>  my_msg_queue(
+                                  mutex_attrs, cond_attrs);
+
+// this queue can carry messages of any type derived from MY_MSG_BASE.
+\endcode
+
    <li> All queues added to a t2t_queue_set must be declared using the
         same message base class (a class derived from
         t2t_message_base<>).
+
+\code
+ThreadSlinger2::t2t_queue<MY_MSG_BASE>       q1(mattr,cattr);
+ThreadSlinger2::t2t_queue<MY_MSG_BASE>       q2(mattr,cattr);
+ThreadSlinger2::t2t_queue<OTHER_MSG_BASE>    q3(mattr,cattr);
+
+ThreadSlinger2::t2t_queue_set<MY_MSG_BASE>   qset(mattr,cattr);
+
+qset.add_queue(&q1, 1); // ok
+qset.add_queue(&q2, 2); // ok
+// qset.add_queue(&q3, 3);  // error: cannot convert argument 1
+\endcode
+
    </ul>
+
+\section Example Example
 
 Suppose you had three messages you wanted to pass in a system, a base
 class messages and two derived classes. Define them as below, deriving
 the first class from ThreadSlinger2::t2t_message_base.
+
+\subsection msgclassdecls Message class declarations
 
 \note I recommend declaring typedefs in your message classes to simplify
    declarations of shared pointers, queues, queue sets, and pools.
@@ -642,6 +689,8 @@ public:
    what is important is that the largest message is specified, as
    the buffers in this pool will be sized to fit the largest message.
 
+\subsection sharedptr Shared Pointers
+
 Some of the functions below return a
 \ref ThreadSlinger2::t2t_shared_ptr
 which automatically manages reference counts in the returned
@@ -654,6 +703,8 @@ Note that the typedefs added above make these easier to declare.
 Next, use those convenience types to declare a pool which can contain
 a set of buffers, and a queue for passing messages from one thread to
 another.
+
+\subsection pools Message Pools
 
 Queues and pools use pthread mutex and condition, so you can supply
 custom attributes for those if you need to change their properties.
@@ -679,23 +730,25 @@ custom attributes for those if you need to change their properties.
     my_message_base    ::queue_t  myqueue1(    &mattr,&cattr);
     my_message_base    ::queue_t  myqueue2(    &mattr,&cattr);
 
-    // declare a queue set; later we'll add queues to the set.
+    // declare a queue set; next we'll add queues to the set.
     my_message_base::queue_set_t      qset(    &mattr,&cattr);
-
-    // no longer need the attribute objects.
-    pthread_mutexattr_destroy(&mattr);
-    pthread_condattr_destroy(&cattr);
 
     // add the two queues to the set, with unique id numbers
     // for each queue. note also the id also serves as a priority.
     // lower value ids will be serviced first.
     qset.add_queue(&myqueue1, 1);
     qset.add_queue(&myqueue2, 2);
+
+    // no longer need the attribute objects.
+    pthread_mutexattr_destroy(&mattr);
+    pthread_condattr_destroy(&cattr);
 \endcode
 
 Now, a sender may allocate new buffers from the pool, and any arguments
 required for the object constructors are passed through the arguments
 to the \ref ThreadSlinger2::t2t_pool::alloc call.
+
+\subsection enqueuing Enqueueing into Message Queues
 
 Once it has allocated a buffer and filled it out, it enqueues it using
 \ref ThreadSlinger2::t2t_queue::enqueue.
@@ -747,11 +800,12 @@ grow if it is currently empty.
         printf("ALLOC FAILED\n");
 \endcode
 
-
 \note In this example we use a t2t_queue_set to group queues together
    and service them together (the set initialization was shown above);
    however, if you do not add a queue to a set, you may use the
    "dequeue" method in a single queue's class to process messages.
+
+\subsection dequeuing Dequeuing from Message Queues
 
 The recipient thread then dequeues from these queues using
 \ref ThreadSlinger2::t2t_queue_set::dequeue
@@ -827,5 +881,17 @@ void register_new_assertion_handler(void)
 }
 \endcode
 
+\section moreexample More Examples
+
+See the page called \ref examplecode for full source code to
+an example program.
 
  */
+
+/** \page examplecode Example test program
+
+Here is the complete source code to the included test program.
+
+\include threadslinger2_test.cc
+
+*/
