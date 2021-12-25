@@ -517,11 +517,23 @@ void * t2t_message_base<BaseT> :: operator new(
         __TS2_ASSERT(BUFFER_SIZE_TOO_BIG_FOR_POOL, false);
         return NULL;
     }
-    BaseT * obj = (BaseT*) pool->_alloc(wait_ms);
-    if (obj == NULL)
-        return NULL;
-    obj->__pool = pool;
-    return obj;
+    void * ret = pool->_alloc(wait_ms);
+    if (ret != NULL)
+    {
+        // there's a GCC bug!! for some reason, gcc 10.2.1
+        // absolutely REFUSES to write to obj->__pool here
+        // unless i make this volatile!
+        // (big clue: it works at gcc -O0 but fails at -O3!!
+        // another big clue: adding a printf of obj->__pool
+        // after the assignment also makes it work!)
+        // i believe having operator new actually convert
+        // the memory pointer to the desired type and writing
+        // to it (before the constructor runs!) is an unusual
+        // situation in the gcc world.
+        volatile BaseT * obj = (volatile BaseT*) ret;
+        obj->__pool = pool;
+    }
+    return ret;
 }
 
 template <class BaseT>

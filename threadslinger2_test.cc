@@ -22,6 +22,7 @@ exit 0
 #include "threadslinger2.h"
 #include <sys/types.h>
 #include <signal.h>
+#include <string.h>
 
 using namespace std;
 
@@ -62,6 +63,26 @@ public:
     }
 };
 
+class my_data : public ts2::t2t_message_base<my_data>
+{
+public:
+    typedef ts2::t2t_pool<my_data> pool_t;
+    typedef ts2::t2t_shared_ptr<my_data> sp_t;
+
+    int len;
+    char buf[1000];
+    my_data(void)
+    {
+        printf("my_data constructor\n");
+        len = 0;
+        memset(buf,0,sizeof(buf));
+    }
+    ~my_data(void)
+    {
+        printf("my_data destructor\n");
+    }
+};
+
 class my_message_derived1 : public my_message_base
 {
 public:
@@ -72,6 +93,8 @@ public:
 
     int c;
     int d;
+    my_data::sp_t  data;
+
     my_message_derived1(int _a, int _b, int _c, int _d)
         : my_message_base(TYPE_D1, _a, _b), c(_c), d(_d)
     {
@@ -152,11 +175,12 @@ int main(int argc, char ** argv)
     pthread_condattr_init(&cattr);
     pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);
 
-    my_message_derived1::pool1_t  mypool1(1,10,&mattr,&cattr);
-    my_message_derived2::pool2_t  mypool2(1,10,&mattr,&cattr);
-    my_message_base    ::queue_t  myqueue1(    &mattr,&cattr);
-    my_message_base    ::queue_t  myqueue2(    &mattr,&cattr);
-    my_message_base::queue_set_t      qset(    &mattr,&cattr);
+    my_message_derived1::pool1_t   mypool1( 1,10,&mattr,&cattr);
+    my_message_derived2::pool2_t   mypool2( 1,10,&mattr,&cattr);
+    my_message_base    ::queue_t  myqueue1(      &mattr,&cattr);
+    my_message_base    ::queue_t  myqueue2(      &mattr,&cattr);
+    my_message_base::queue_set_t      qset(      &mattr,&cattr);
+    my_data::pool_t               datapool(20,20,&mattr,&cattr);
 
     qset.add_queue(&myqueue1, 1);
     qset.add_queue(&myqueue2, 2);
@@ -188,6 +212,8 @@ int main(int argc, char ** argv)
                      ts2::GROW,
                      3,4,5,6))
     {
+        datapool.alloc(&spmd1->data, 1000);
+
         printf("enqueuing a message NOW\n");
         myqueue2.enqueue(spmd1);
     }
