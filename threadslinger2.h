@@ -23,7 +23,9 @@ namespace ThreadSlinger2 {
 //////////////////////////// ERROR HANDLING ////////////////////////////
 
 /** the list of error types passed to an
- * ts2_assert_handler_t assertion handler. */
+ * ts2_assert_handler_t assertion handler.
+ * \note the errors which are a result of a user error are listed first;
+ *    errors which are most likely internal bugs are listed next. */
 enum ts2_error_t {
 
     // please keep this in sync with ts2_error_types[]
@@ -465,7 +467,7 @@ Classes of interest provided by this library:
 
 This API allows you to do the following:
   <ul>
-  <li> Manage pools of buffers which are completely real-time to
+  <li> Manage pools of buffers which are real-time to
        allocate from and release to.
 
      <ul>
@@ -542,7 +544,7 @@ This API allows you to do the following:
         message classes deriving from t2t_message_base<> must be of the
         form:
 \code
-class MY_MSG_BASE : public ThreadSlinger2::t2t_message_base<MY_MSG>
+class MY_MSG_BASE : public ThreadSlinger2::t2t_message_base<MY_MSG_BASE>
 { <fields and methods here> }
 
 [optional, if desired:]
@@ -848,6 +850,8 @@ does the same. Both are demonstrated in the code below.
             printf("READER GOT NULL\n");
     }
 \endcode
+
+\section errorhandling Error Handling / Assertions
 
 Finally, by default errors are caught and printed on stderr; fatal
 errors cause an exit of the process. If you want your own handler for
