@@ -356,7 +356,7 @@ public:
 
 //////////////////////////// __T2T_POOL ////////////////////////////
 
-struct __t2t_container; // forward
+struct __t2t_memory_block; // forward
 
 /** base class for all t2t_pool template objects. */
 class __t2t_pool
@@ -364,7 +364,7 @@ class __t2t_pool
 protected:
     t2t_pool_stats  stats;
     int bufs_to_add_when_growing;
-    std::list<std::unique_ptr<__t2t_container>> container_pool;
+    std::list<std::unique_ptr<__t2t_memory_block>> memory_pool;
     __t2t_queue q;
     __t2t_pool(int buffer_size,
                int _num_bufs_init,

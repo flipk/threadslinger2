@@ -61,15 +61,15 @@ void t2t_pool_stats :: init(int _buffer_size)
     double_frees = 0;
 }
 
-//////////////////////////// __T2T_CONTAINER ////////////////////////////
+//////////////////////////// __T2T_MEMORY_BLOCK ////////////////////////////
 
-struct __t2t_container
+struct __t2t_memory_block
 {
     // this is required by unique_ptr, because it has
     // a static_assert(sizeof(_Tp)>0) in it.....
     int dummy;
     uint64_t data[0]; // forces entire struct to 8 byte alignment
-    __t2t_container(void)
+    __t2t_memory_block(void)
     {
         dummy = 0;
     }
@@ -82,8 +82,8 @@ struct __t2t_container
         free(ptr);
     }
 
-    __T2T_EVIL_CONSTRUCTORS(__t2t_container);
-    __T2T_EVIL_NEW(__t2t_container);
+    __T2T_EVIL_CONSTRUCTORS(__t2t_memory_block);
+    __T2T_EVIL_NEW(__t2t_memory_block);
 };
 
 //////////////////////////// __T2T_POOL ////////////////////////////
@@ -109,9 +109,9 @@ void __t2t_pool :: add_bufs(int num_bufs)
     if (num_bufs <= 0)
         return;
     int real_buffer_size = stats.buffer_size + sizeof(__t2t_buffer_hdr);
-    int container_size = num_bufs * real_buffer_size;
-    __t2t_container * c = new(container_size) __t2t_container;
-    container_pool.push_back(std::unique_ptr<__t2t_container>(c));
+    int memory_block_size = num_bufs * real_buffer_size;
+    __t2t_memory_block * c = new(memory_block_size) __t2t_memory_block;
+    memory_pool.push_back(std::unique_ptr<__t2t_memory_block>(c));
     uint8_t * ptr = (uint8_t *) c->data;
     for (int ind = 0; ind < num_bufs; ind++)
     {
