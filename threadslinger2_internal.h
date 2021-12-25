@@ -289,110 +289,35 @@ struct __t2t_timespec : public timespec
     }
 };
 
-/*
-    ////////////////// SOME NOTES ON LOCKING //////////////////
-
-For a single queue which must support only enqueue and dequeue
-primitives, locking is quite simple. Each queue needs a simple mutex
-to protect modifications to the linked list of events in that queue,
-and a condition to guarantee the recipient awakens from dequeue when a
-new message arrives. Since a pthread condition atomically interlocks
-with the same mutex, it is fairly trivial to ensure both needs (intact
-linked list and wakeup at the appropriate time).
-
-To support dequeuing from multiple queues at once, however, gets
-rather more complex. If all queues utilised a single mutex, it might
-be possible, because it could transition between "checking all queues
-are currently empty" to "sleeping on a condition waiting to be awoken
-by the next enqueue" atomically.
-
-However, in the use case where there are many threads and each thread
-dequeues from only one queue, it is far more efficient for each queue
-to have its own mutex and condition. The threads are not competing for
-data structures, so they should not compete for mutexing. Having a
-single shared mutex dramatically reduces parallelism because multiple
-threads will be competing for a single lock even though those multiple
-threads are not be competing for the same data structures.
-
-To support both a 1-to-1 mapping of threads and queues and a 1-to-many
-mapping at the same time, this code attempts to solve this problem by
-allowing a queue to change what mutex and condition is used. For the
-1-to-1 case, each queue has its own mutex and condition; but for the
-1-to-many case, but there is another object called a "queue set" which
-contains its own mutex and condition. When a queue is added to a set,
-the set modifies the queue's pointers to reference the set's mutex and
-condition.  At that point, all the queues in the set refer to the same
-mutex and the same condition. The set has it's own dequeue function,
-which can atomically check all queues in the set and block on the
-condition.
-
-The one wrinkle is where it switches a queue in and out of the set.
-During that time, the queue's "pmutex" pointer is changed, introducing
-a new hole for race conditions. For instance, a sending thread could
-be part way through an enqueue (with the queue's own mutex locked)
-when a recipient adds the queue to a set and changes queue->pmutex to
-point to the set's mutex.
-
-This code attempts to close that race by placing another lock (this
-time a rwlock) around access to the "pmutex" member. The enqueue
-method does a read-lock. Since multiple threads can read-lock without
-contention, this should allow multiple threads to enqueue without
-causing context blocks (beyond those already required by the mutex
-itself). Only the set's add_queue and remove_queue will trigger a
-write-lock, which should be relatively inexpensive.
-
-You could encounter problems if one thread is doing add_queue or
-remove_queue at the same time another thread is doing dequeue on the
-same set, as t2t_queue_set is not, itself, threadsafe. This would be a
-very bad thing to do. However, this would also be a very bad design --
-the code which needs to do the dequeues should be the same thread
-which knows when a queue should be added or removed to the set.
-
- */
-
-class __t2t_rwlock
-{
-    pthread_rwlock_t  _rwlock;
-public:
-    __t2t_rwlock(void)  { pthread_rwlock_init   (&_rwlock, NULL); }
-    ~__t2t_rwlock(void) { pthread_rwlock_destroy(&_rwlock); }
-    void rdlock(void)   { pthread_rwlock_rdlock (&_rwlock); }
-    void wrlock(void)   { pthread_rwlock_wrlock (&_rwlock); }
-    void unlock(void)   { pthread_rwlock_unlock (&_rwlock); }
-};
-
 //////////////////////////// __T2T_QUEUE ////////////////////////////
 
 class __t2t_queue : public __t2t_links<__t2t_queue>
 {
-    friend class __t2t_queue_set;
-    void set_pmutexpcond(pthread_mutex_t *nm = NULL,
-                         pthread_cond_t  *nc = NULL)
-    {
-        _rwlock.wrlock();
-        pthread_mutex_lock(&_mutex);
-        pmutex = nm ? nm : &_mutex;
-        pcond = nc;
-        pthread_mutex_unlock(&_mutex);
-        _rwlock.unlock();
-    }
-    // note the value of pmutex is guarded by a rwlock.  _enqueue will
-    // rdlock momentarily in order to read pmutex, and
-    // t2t_queue_set.add_queue and remove_queue will wrlock
-    // momentarily to change pmutex.
-    __t2t_rwlock      _rwlock; // protect pmutex
-    pthread_mutex_t * pmutex; // points to _mutex or set_mutex
-    pthread_cond_t  * pcond;  // points to _cond or set_cond
-    pthread_mutex_t   _mutex;
-    pthread_cond_t    _cond;
+    pthread_mutex_t   mutex;
+    pthread_cond_t    cond;
+
+    // these two pointers must only be accessed
+    // or changed with &mutex locked.
+    pthread_mutex_t * psetmutex;
+    pthread_cond_t  * psetcond;
+
     clockid_t         clk_id;
     __t2t_buffer_hdr  buffers;
-    struct Lock {
+    class Lock {
         pthread_mutex_t *m;
+    public:
         Lock(pthread_mutex_t *_m) : m(_m) { pthread_mutex_lock(m); }
         ~Lock(void) { pthread_mutex_unlock(m); }
     };
+    friend class __t2t_queue_set;
     int id;
+    void set_pmutexpcond(pthread_mutex_t *nm = NULL,
+                         pthread_cond_t  *nc = NULL)
+    {
+        Lock l(&mutex);
+        psetmutex = nm;
+        psetcond = nc;
+    }
 public:
     __t2t_queue(pthread_mutexattr_t *pmattr,
                 pthread_condattr_t  *pcattr);
@@ -424,7 +349,7 @@ public:
     __t2t_queue_set(pthread_mutexattr_t *pmattr = NULL,
                     pthread_condattr_t  *pcattr = NULL);
     ~__t2t_queue_set(void);
-    void _add_queue(__t2t_queue *q, int id);
+    bool _add_queue(__t2t_queue *q, int id);
     void _remove_queue(__t2t_queue *q);
     __t2t_buffer_hdr * _dequeue(int wait_ms, int *id);
 };
@@ -550,10 +475,10 @@ t2t_queue_set<BaseT> :: ~t2t_queue_set(void)
 }
 
 template <class BaseT>
-void t2t_queue_set<BaseT> :: add_queue(t2t_queue<BaseT> *q, int id)
+bool t2t_queue_set<BaseT> :: add_queue(t2t_queue<BaseT> *q, int id)
 {
     // __t2t_queue_set does its own locking.
-    qs._add_queue(&q->q, id);
+    return qs._add_queue(&q->q, id);
 }
 
 template <class BaseT>

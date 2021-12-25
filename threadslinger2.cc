@@ -181,23 +181,23 @@ __t2t_queue :: __t2t_queue(pthread_mutexattr_t *pmattr,
                            pthread_condattr_t *pcattr)
 {
     __t2t_links::init();
-    pthread_mutex_init(&_mutex, pmattr);
-    pthread_cond_init(&_cond, pcattr);
+    pthread_mutex_init(&mutex, pmattr);
+    pthread_cond_init(&cond, pcattr);
     if (pcattr)
         pthread_condattr_getclock(pcattr, &clk_id);
     else
         // the default condattr clock appears to be REALTIME
         clk_id = CLOCK_REALTIME;
     buffers.init();
-    pcond = NULL;
-    pmutex = &_mutex;
+    psetmutex = NULL;
+    psetcond = NULL;
     id = 0;
 }
 
 __t2t_queue :: ~__t2t_queue(void)
 {
-    pthread_mutex_destroy(&_mutex);
-    pthread_cond_destroy(&_cond);
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&cond);
 }
 
 // -1 : wait forever
@@ -206,10 +206,8 @@ __t2t_queue :: ~__t2t_queue(void)
 __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
 {
     __t2t_buffer_hdr * h = NULL;
-    _rwlock.rdlock();
-    Lock  l(pmutex);
-    _rwlock.unlock();
-    if (pcond != NULL)
+    Lock  l(&mutex);
+    if (psetmutex != NULL)
     {
         __TS2_ASSERT(T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE,false);
         return NULL;
@@ -217,12 +215,8 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
     if (wait_ms < 0)
     {
         // wait forever
-        pcond = &_cond;
         while (buffers.empty())
-        {
-            pthread_cond_wait(pcond, l.m);
-        }
-        pcond = NULL;
+            pthread_cond_wait(&cond, &mutex);
     }
     else if (wait_ms == 0)
     {
@@ -236,7 +230,6 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
         bool first = true;
         bool timed_out = false;
         __t2t_timespec  ts;
-        pcond = &_cond;
         while (buffers.empty() && !timed_out)
         {
             if (first)
@@ -246,11 +239,10 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
                 ts += t;
                 first = false;
             }
-            int ret = pthread_cond_timedwait(pcond, l.m, &ts);
+            int ret = pthread_cond_timedwait(&cond, &mutex, &ts);
             if (ret != 0)
                 timed_out = true;
         }
-        pcond = NULL;
         if (timed_out)
         {
             return NULL;
@@ -272,16 +264,16 @@ void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
         __TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return;
     }
-    pthread_cond_t *local_pcond;
     {
-        _rwlock.rdlock();
-        Lock l(pmutex);
-        _rwlock.unlock();
+        Lock l(&mutex);
         buffers.add_next(h);
-        local_pcond = pcond;
+        if (psetmutex)
+        {
+            Lock l2(psetmutex);
+            pthread_cond_signal(psetcond);
+        }
     }
-    if (local_pcond)
-        pthread_cond_signal(local_pcond);
+    pthread_cond_signal(&cond);
 }
 
 void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
@@ -292,16 +284,16 @@ void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
         __TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return;
     }
-    pthread_cond_t *local_pcond;
     {
-        _rwlock.rdlock();
-        Lock l(pmutex);
-        _rwlock.unlock();
+        Lock l(&mutex);
         buffers.add_prev(h);
-        local_pcond = pcond;
+        if (psetmutex)
+        {
+            Lock l2(psetmutex);
+            pthread_cond_signal(psetcond);
+        }
     }
-    if (local_pcond)
-        pthread_cond_signal(local_pcond);
+    pthread_cond_signal(&cond);
 }
 
 //////////////////////////// __T2T_QUEUE_SET ////////////////////////////
@@ -329,10 +321,16 @@ __t2t_queue_set :: ~__t2t_queue_set(void)
     pthread_cond_destroy(&set_cond);
 }
 
-void
+bool
 __t2t_queue_set :: _add_queue(__t2t_queue *q, int id)
 {
     __t2t_queue::Lock l(&set_mutex);
+
+    if (q->list != NULL)
+    {
+        __TS2_ASSERT(QUEUE_IN_A_SET, false);
+        return false;
+    }
 
     if (qs.empty())
         qs.add_next(q);
@@ -346,6 +344,7 @@ __t2t_queue_set :: _add_queue(__t2t_queue *q, int id)
     }
     q->set_pmutexpcond(&set_mutex, &set_cond);
     q->id = id;
+    return true;
 }
 
 void
@@ -379,6 +378,7 @@ __t2t_queue_set :: _dequeue(int wait_ms, int *id)
         __t2t_queue * q0 = qs.get_next();
         for (q = q0; q != &qs; q = q->get_next())
         {
+            __t2t_queue::Lock l(&q->mutex);
             if (q->buffers.empty() == false)
             {
                 h = q->buffers.get_next();

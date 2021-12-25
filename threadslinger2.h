@@ -359,7 +359,7 @@ public:
      * \note this class is not multi-thread safe, that is you should
      *       not allow one thread to do add/remove while another does
      *       dequeue. that would be very bad. */
-    void add_queue(t2t_queue<BaseT> *q, int id);
+    bool add_queue(t2t_queue<BaseT> *q, int id);
 
     /** remove a queue from this set. may be done at any time.
      * \note this class is not multi-thread safe, that is you should
