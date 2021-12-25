@@ -143,6 +143,8 @@ void *reader_thread(void *arg);
 
 int main(int argc, char ** argv)
 {
+    ts2::ts2_assert_handler = &my_ts2_assert_handler;
+
     pthread_mutexattr_t  mattr;
     pthread_condattr_t   cattr;
 
@@ -158,8 +160,6 @@ int main(int argc, char ** argv)
 
     qset.add_queue(&myqueue1, 1);
     qset.add_queue(&myqueue2, 2);
-
-    ts2::ts2_assert_handler = &my_ts2_assert_handler;
 
     pthread_mutexattr_destroy(&mattr);
     pthread_condattr_destroy(&cattr);

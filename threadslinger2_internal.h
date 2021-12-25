@@ -181,7 +181,7 @@ struct __t2t_links
     {
         if (magic == LINKS_MAGIC)
             return true;
-        __TS2_ASSERT(T2T_LINKS_MAGIC_CORRUPT,true);
+        __TS2_ASSERT(LINKS_MAGIC_CORRUPT,true);
         return false;
     }
     void init(void)
@@ -201,7 +201,7 @@ struct __t2t_links
         ok();
         if (item->list != NULL)
         {
-            __TS2_ASSERT(T2T_LINKS_ADD_ALREADY_ON_LIST,true);
+            __TS2_ASSERT(LINKS_ADD_ALREADY_ON_LIST,true);
         }
         item->next = next;
         item->prev = this;
@@ -216,7 +216,7 @@ struct __t2t_links
         ok();
         if (item->list != NULL)
         {
-            __TS2_ASSERT(T2T_LINKS_ADD_ALREADY_ON_LIST,true);
+            __TS2_ASSERT(LINKS_ADD_ALREADY_ON_LIST,true);
         }
         item->next = this;
         item->prev = prev;
@@ -233,7 +233,7 @@ struct __t2t_links
         ok();
         if (list == NULL)
         {
-            __TS2_ASSERT(T2T_LINKS_REMOVE_NOT_ON_LIST,true);
+            __TS2_ASSERT(LINKS_REMOVE_NOT_ON_LIST,true);
         }
         list = NULL;
         next->prev = prev;
@@ -442,7 +442,7 @@ void t2t_queue<BaseT> :: enqueue(t2t_shared_ptr<T> &_msg)
     }
     else
     {
-        __TS2_ASSERT(T2T_ENQUEUE_EMPTY_POINTER,false);
+        __TS2_ASSERT(ENQUEUE_EMPTY_POINTER,false);
     }
 }
 

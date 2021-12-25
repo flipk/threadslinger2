@@ -5,23 +5,30 @@ namespace ThreadSlinger2 {
 
 //////////////////////////// ERROR HANDLING ////////////////////////////
 
-const char * ts2_error_types[T2T_NUM_ERRORS] = {
+const char * ts2_error_types[] = {
 
     // please keep this in sync with ts2_error_t
 
-    "zero entry not used",
+    "NO_ERROR",
+
+    // the following errors are the result of user error.
     "BUFFER_SIZE_TOO_BIG_FOR_POOL",
-    "T2T_LINKS_MAGIC_CORRUPT",
-    "T2T_LINKS_ADD_ALREADY_ON_LIST",
-    "T2T_LINKS_REMOVE_NOT_ON_LIST",
-    "T2T_POOL_RELEASE_ALREADY_ON_LIST",
     "DOUBLE_FREE",
-    "T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE",
-    "T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST",
-    "T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST",
-    "T2T_QUEUE_SET_EMPTY",
-    "T2T_ENQUEUE_EMPTY_POINTER"
+    "QUEUE_IN_A_SET",
+    "QUEUE_SET_EMPTY",
+    "ENQUEUE_EMPTY_POINTER",
+
+    // the following errors are most likely internal bugs.
+    "LINKS_MAGIC_CORRUPT",
+    "LINKS_ADD_ALREADY_ON_LIST",
+    "LINKS_REMOVE_NOT_ON_LIST",
+    "POOL_RELEASE_ALREADY_ON_LIST",
+    "QUEUE_DEQUEUE_NOT_ON_THIS_LIST",
+    "QUEUE_ENQUEUE_ALREADY_ON_A_LIST",
 };
+
+static_assert((sizeof(ts2_error_types) / sizeof(char*)) == NUM_ERRORS,
+              "ts2_error_types is out of sync with enum ts2_error_t");
 
 static void default_ts2_assert_handler(ts2_error_t e,
                                        bool fatal,
@@ -155,7 +162,7 @@ void __t2t_pool :: release(void * ptr)
     h--;
     if (h->list != NULL)
     {
-        __TS2_ASSERT(T2T_POOL_RELEASE_ALREADY_ON_LIST,true);
+        __TS2_ASSERT(POOL_RELEASE_ALREADY_ON_LIST,true);
     }
     if (h->inuse == false)
     {
@@ -209,7 +216,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
     Lock  l(&mutex);
     if (psetmutex != NULL)
     {
-        __TS2_ASSERT(T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE,false);
+        __TS2_ASSERT(QUEUE_IN_A_SET,false);
         return NULL;
     }
     if (wait_ms < 0)
@@ -251,7 +258,7 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
     h = buffers.get_next();
     h->ok();
     if (!_validate(h))
-        __TS2_ASSERT(T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
+        __TS2_ASSERT(QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
     h->remove();
     return h;
 }
@@ -261,7 +268,7 @@ void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
     h->ok();
     if (h->list != NULL)
     {
-        __TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
+        __TS2_ASSERT(QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return;
     }
     {
@@ -281,7 +288,7 @@ void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
     h->ok();
     if (h->list != NULL)
     {
-        __TS2_ASSERT(T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
+        __TS2_ASSERT(QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return;
     }
     {
@@ -366,7 +373,7 @@ __t2t_queue_set :: _dequeue(int wait_ms, int *id)
 
     if (qs.empty())
     {
-        __TS2_ASSERT(T2T_QUEUE_SET_EMPTY,false);
+        __TS2_ASSERT(QUEUE_SET_EMPTY,false);
         if (id)
             *id = qid;
         return NULL;
@@ -383,7 +390,7 @@ __t2t_queue_set :: _dequeue(int wait_ms, int *id)
             {
                 h = q->buffers.get_next();
                 if (!q->_validate(h))
-                    __TS2_ASSERT(T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
+                    __TS2_ASSERT(QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
                 h->remove();
                 qid = q->id;
                 goto out;

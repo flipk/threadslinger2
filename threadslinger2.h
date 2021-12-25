@@ -28,23 +28,24 @@ enum ts2_error_t {
 
     // please keep this in sync with ts2_error_types[]
 
-    BUFFER_SIZE_TOO_BIG_FOR_POOL          = 1, //!< buffer size too big
-    T2T_LINKS_MAGIC_CORRUPT               = 2, //!< magic sig corrupt
-    T2T_LINKS_ADD_ALREADY_ON_LIST         = 3, //!< already on a list
-    T2T_LINKS_REMOVE_NOT_ON_LIST          = 4, //!< not on any list
-    T2T_POOL_RELEASE_ALREADY_ON_LIST      = 5, //!< already released
-    DOUBLE_FREE                           = 6, //!< double free !
+    NO_ERROR, // this is first, and internal.
 
-    // THIS API DOES NOT SUPPORT MORE THAN ONE THREAD
-    // DEQUEUING FROM THE SAME QUEUE
-    // AT THE SAME TIME SO DONT DO THAT
-    T2T_QUEUE_MULTIPLE_THREAD_DEQUEUE     = 7, //!< multiple threads bad
-    T2T_QUEUE_DEQUEUE_NOT_ON_THIS_LIST    = 8, //!< not on this list
-    T2T_QUEUE_ENQUEUE_ALREADY_ON_A_LIST   = 9, //!< already on a list
-    T2T_QUEUE_SET_EMPTY                   = 10,//!< queue set empty
-    T2T_ENQUEUE_EMPTY_POINTER             = 11,//!< enqueue empty pointer
+    // the following errors are the result of user error.
+    BUFFER_SIZE_TOO_BIG_FOR_POOL,   //!< buffer size too big
+    DOUBLE_FREE,       //!< freeing a buffer already freed
+    QUEUE_IN_A_SET,   //!< queue is currently in a set
+    QUEUE_SET_EMPTY,    //!< queue set empty
+    ENQUEUE_EMPTY_POINTER,    //!< enqueue empty pointer
 
-    T2T_NUM_ERRORS            //!< this is always last
+    // the following errors are most likely internal bugs.
+    LINKS_MAGIC_CORRUPT,        //!< (internal) magic sig corrupt
+    LINKS_ADD_ALREADY_ON_LIST,   //!< (internal) already on a list
+    LINKS_REMOVE_NOT_ON_LIST,    //!< (internal) not on any list
+    POOL_RELEASE_ALREADY_ON_LIST, //!< (internal) already released
+    QUEUE_DEQUEUE_NOT_ON_THIS_LIST, //!< (internal) not on this list
+    QUEUE_ENQUEUE_ALREADY_ON_A_LIST, //!< (internal) already on a list
+
+    NUM_ERRORS // must be last
 };
 
 /** this array contains descriptive strings for ts2_error_t enum values;
