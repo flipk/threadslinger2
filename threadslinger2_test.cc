@@ -157,7 +157,7 @@ my_ts2_assert_handler(ts2::ts2_error_t e, bool fatal,
 {
     fprintf(stderr,
             "\n\nERROR: ThreadSlinger2 ASSERTION %d (%s) at %s:%d\n\n",
-            e, ts2::ts2_error_types[e], filename, lineno);
+            e, ts2::ts2_error_types[(int)e], filename, lineno);
     // i want a core dump that i can gdb
     kill(0, SIGABRT);
 }
@@ -198,7 +198,8 @@ int main(int argc, char ** argv)
                       1,2))
     {
         printf("enqueuing a message NOW\n");
-        myqueue1.enqueue(spmb);
+        if (myqueue1.enqueue(spmb) == false)
+            printf("ENQUEUE RETURNED FALSE\n");
     }
     else
         printf("ALLOC FAILED\n");
@@ -215,7 +216,8 @@ int main(int argc, char ** argv)
         datapool.alloc(&spmd1->data, 1000);
 
         printf("enqueuing a message NOW\n");
-        myqueue2.enqueue(spmd1);
+        if (myqueue2.enqueue(spmd1) == false)
+            printf("ENQUEUE RETURNED FALSE\n");
     }
     else
         printf("ALLOC FAILED\n");
@@ -230,7 +232,8 @@ int main(int argc, char ** argv)
                      7,8,9,10,11))
     {
         printf("enqueuing a message NOW\n");
-        myqueue2.enqueue(spmd2);
+        if (myqueue2.enqueue(spmd2) == false)
+            printf("ENQUEUE RETURNED FALSE\n");
     }
     else
         printf("FAILED\n");
@@ -260,7 +263,8 @@ int main(int argc, char ** argv)
                       12,13,-1,14,15)) // e=-1 means exit!
     {
         printf("enqueuing EXIT message NOW\n");
-        myqueue1.enqueue(spmd2);
+        if (myqueue1.enqueue(spmd2) == false)
+            printf("ENQUEUE RETURNED FALSE\n");
     }
     else
         printf("FAILED\n");

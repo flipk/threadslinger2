@@ -27,7 +27,8 @@ const char * ts2_error_types[] = {
     "QUEUE_ENQUEUE_ALREADY_ON_A_LIST",
 };
 
-static_assert((sizeof(ts2_error_types) / sizeof(char*)) == NUM_ERRORS,
+static_assert((sizeof(ts2_error_types) / sizeof(char*))
+              == (int)ts2_error_t::NUM_ERRORS,
               "ts2_error_types is out of sync with enum ts2_error_t");
 
 static void default_ts2_assert_handler(ts2_error_t e,
@@ -35,8 +36,9 @@ static void default_ts2_assert_handler(ts2_error_t e,
                                        const char *filename,
                                        int lineno)
 {
-    fprintf(stderr, "\n\nERROR: ThreadSlinger2 ASSERTION %d at %s:%d\n\n",
-            e, filename, lineno);
+    fprintf(stderr,
+            "\n\nERROR: ThreadSlinger2 ASSERTION %d (%s) at %s:%d\n\n",
+            e, ts2_error_types[(int)e], filename, lineno);
     if (fatal)
         // if you dont like this exiting, CHANGE IT
         exit(1);
@@ -172,6 +174,8 @@ void __t2t_pool :: release(void * ptr)
     else
     {
         h->inuse = false;
+        // ignoring return value because we've already
+        // checked the h->list condition above.
         q._enqueue(h);
         stats.buffers_in_use --;
     }
@@ -263,13 +267,13 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
     return h;
 }
 
-void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
+bool __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
 {
     h->ok();
     if (h->list != NULL)
     {
         __TS2_ASSERT(QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
-        return;
+        return false;
     }
     {
         Lock l(&mutex);
@@ -281,15 +285,16 @@ void __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
         }
     }
     pthread_cond_signal(&cond);
+    return true;
 }
 
-void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
+bool __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
 {
     h->ok();
     if (h->list != NULL)
     {
         __TS2_ASSERT(QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
-        return;
+        return false;
     }
     {
         Lock l(&mutex);
@@ -301,6 +306,7 @@ void __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
         }
     }
     pthread_cond_signal(&cond);
+    return true;
 }
 
 //////////////////////////// __T2T_QUEUE_SET ////////////////////////////

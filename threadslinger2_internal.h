@@ -163,7 +163,7 @@ void t2t_shared_ptr<T> :: deref(void)
 //////////////////////////// ERROR HANDLING ////////////////////////////
 
 #define __TS2_ASSERT(err,fatal) \
-    ts2_assert_handler(err,fatal, __FILE__, __LINE__)
+    ts2_assert_handler(ts2_error_t::err,fatal, __FILE__, __LINE__)
 
 //////////////////////////// __T2T_LINKS ////////////////////////////
 
@@ -328,9 +328,9 @@ public:
     // >0 : wait for some number of mS
     __t2t_buffer_hdr *_dequeue(int wait_ms);
     // a pool should be a stack, to keep caches hotter.
-    void _enqueue(__t2t_buffer_hdr *h);
+    bool _enqueue(__t2t_buffer_hdr *h);
     // a queue should be a fifo, to keep msgs in order.
-    void _enqueue_tail(__t2t_buffer_hdr *h);
+    bool _enqueue_tail(__t2t_buffer_hdr *h);
 
     __T2T_EVIL_CONSTRUCTORS(__t2t_queue);
     __T2T_EVIL_NEW(__t2t_queue);
@@ -427,8 +427,9 @@ t2t_queue<BaseT> :: t2t_queue(pthread_mutexattr_t *pmattr /*= NULL*/,
 
 template <class BaseT>
 template <class T>
-void t2t_queue<BaseT> :: enqueue(t2t_shared_ptr<T> &_msg)
+bool t2t_queue<BaseT> :: enqueue(t2t_shared_ptr<T> &_msg)
 {
+    bool ret = false;
     static_assert(std::is_base_of<BaseT, T>::value == true,
                   "enqueued type must be derived from "
                   "base type of the queue");
@@ -438,12 +439,13 @@ void t2t_queue<BaseT> :: enqueue(t2t_shared_ptr<T> &_msg)
         __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) msg;
         h--;
         h->ok();
-        q._enqueue_tail(h);
+        ret = q._enqueue_tail(h);
     }
     else
     {
         __TS2_ASSERT(ENQUEUE_EMPTY_POINTER,false);
     }
+    return ret;
 }
 
 template <class BaseT>

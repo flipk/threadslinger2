@@ -26,7 +26,7 @@ namespace ThreadSlinger2 {
  * ts2_assert_handler_t assertion handler.
  * \note the errors which are a result of a user error are listed first;
  *    errors which are most likely internal bugs are listed next. */
-enum ts2_error_t {
+enum class ts2_error_t {
 
     // please keep this in sync with ts2_error_types[]
 
@@ -51,7 +51,7 @@ enum ts2_error_t {
 };
 
 /** this array contains descriptive strings for ts2_error_t enum values;
- * as long as the value is < T2T_NUM_ERRORS, it is safe to use an enum
+ * as long as the value is < NUM_ERRORS, it is safe to use an enum
  * value to index this array. */
 extern const char * ts2_error_types[];
 
@@ -286,7 +286,7 @@ public:
      *     t2t_shared_ptr is now empty.
      * \note   it is safe for multiple threads to enqueue messages
      *     to a single queue. that is an expected use case. */
-    template <class T> void enqueue(t2t_shared_ptr<T> &msg);
+    template <class T> bool enqueue(t2t_shared_ptr<T> &msg);
 
     /** dequeue a message from this queue in FIFO order.
      * \param wait_ms  how long to wait: \ref wait_flag
