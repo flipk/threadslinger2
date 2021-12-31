@@ -1,13 +1,13 @@
 
-#include "threadslinger2.h"
+#include "thread2thread2.h"
 
-namespace ThreadSlinger2 {
+namespace Thread2Thread2 {
 
 //////////////////////////// ERROR HANDLING ////////////////////////////
 
-const char * ts2_error_types[] = {
+const char * t2t2_error_types[] = {
 
-    // please keep this in sync with ts2_error_t
+    // please keep this in sync with t2t2_error_t
 
     "NO_ERROR",
 
@@ -27,33 +27,33 @@ const char * ts2_error_types[] = {
     "QUEUE_ENQUEUE_ALREADY_ON_A_LIST",
 };
 
-static_assert((sizeof(ts2_error_types) / sizeof(char*))
-              == (int)ts2_error_t::NUM_ERRORS,
-              "ts2_error_types is out of sync with enum ts2_error_t");
+static_assert((sizeof(t2t2_error_types) / sizeof(char*))
+              == (int)t2t2_error_t::NUM_ERRORS,
+              "t2t2_error_types is out of sync with enum t2t2_error_t");
 
-static void default_ts2_assert_handler(ts2_error_t e,
+static void default_t2t2_assert_handler(t2t2_error_t e,
                                        bool fatal,
                                        const char *filename,
                                        int lineno)
 {
     fprintf(stderr,
-            "\n\nERROR: ThreadSlinger2 ASSERTION %d (%s) at %s:%d\n\n",
-            e, ts2_error_types[(int)e], filename, lineno);
+            "\n\nERROR: Thread2Thread2 ASSERTION %d (%s) at %s:%d\n\n",
+            e, t2t2_error_types[(int)e], filename, lineno);
     if (fatal)
         // if you dont like this exiting, CHANGE IT
         exit(1);
 }
 
-ts2_assert_handler_t ts2_assert_handler = &default_ts2_assert_handler;
+t2t2_assert_handler_t t2t2_assert_handler = &default_t2t2_assert_handler;
 
-//////////////////////////// T2T_POOL_STATS ////////////////////////////
+//////////////////////////// T2T2_POOL_STATS ////////////////////////////
 
-t2t_pool_stats :: t2t_pool_stats(int _buffer_size /*= 0*/)
+t2t2_pool_stats :: t2t2_pool_stats(int _buffer_size /*= 0*/)
 {
     init(_buffer_size);
 }
 
-void t2t_pool_stats :: init(int _buffer_size)
+void t2t2_pool_stats :: init(int _buffer_size)
 {
     buffer_size = _buffer_size;
     total_buffers = 0;
@@ -63,15 +63,15 @@ void t2t_pool_stats :: init(int _buffer_size)
     double_frees = 0;
 }
 
-//////////////////////////// __T2T_MEMORY_BLOCK ////////////////////////////
+//////////////////////////// __T2T2_MEMORY_BLOCK ////////////////////////////
 
-struct __t2t_memory_block
+struct __t2t2_memory_block
 {
     // this is required by unique_ptr, because it has
     // a static_assert(sizeof(_Tp)>0) in it.....
     int dummy;
     uint64_t data[0]; // forces entire struct to 8 byte alignment
-    __t2t_memory_block(void)
+    __t2t2_memory_block(void)
     {
         dummy = 0;
     }
@@ -84,13 +84,13 @@ struct __t2t_memory_block
         free(ptr);
     }
 
-    __T2T_EVIL_CONSTRUCTORS(__t2t_memory_block);
-    __T2T_EVIL_NEW(__t2t_memory_block);
+    __T2T2_EVIL_CONSTRUCTORS(__t2t2_memory_block);
+    __T2T2_EVIL_NEW(__t2t2_memory_block);
 };
 
-//////////////////////////// __T2T_POOL ////////////////////////////
+//////////////////////////// __T2T2_POOL ////////////////////////////
 
-__t2t_pool :: __t2t_pool(int buffer_size,
+__t2t2_pool :: __t2t2_pool(int buffer_size,
                          int _num_bufs_init,
                          int _bufs_to_add_when_growing,
                          pthread_mutexattr_t *pmattr,
@@ -102,22 +102,22 @@ __t2t_pool :: __t2t_pool(int buffer_size,
 }
 
 //virtual
-__t2t_pool :: ~__t2t_pool(void)
+__t2t2_pool :: ~__t2t2_pool(void)
 {
 }
 
-void __t2t_pool :: add_bufs(int num_bufs)
+void __t2t2_pool :: add_bufs(int num_bufs)
 {
     if (num_bufs <= 0)
         return;
-    int real_buffer_size = stats.buffer_size + sizeof(__t2t_buffer_hdr);
+    int real_buffer_size = stats.buffer_size + sizeof(__t2t2_buffer_hdr);
     int memory_block_size = num_bufs * real_buffer_size;
-    __t2t_memory_block * c = new(memory_block_size) __t2t_memory_block;
-    memory_pool.push_back(std::unique_ptr<__t2t_memory_block>(c));
+    __t2t2_memory_block * c = new(memory_block_size) __t2t2_memory_block;
+    memory_pool.push_back(std::unique_ptr<__t2t2_memory_block>(c));
     uint8_t * ptr = (uint8_t *) c->data;
     for (int ind = 0; ind < num_bufs; ind++)
     {
-        __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) ptr;
+        __t2t2_buffer_hdr * h = (__t2t2_buffer_hdr *) ptr;
         h->init();
         stats.total_buffers ++;
         q._enqueue(h);
@@ -126,22 +126,21 @@ void __t2t_pool :: add_bufs(int num_bufs)
 }
 
 // wait_ms (see enum wait_flag):
-// -2 : grow if empty
-// -1 : wait forever,
-//  0 : don't wait
-// >0 : wait for some mS
-void * __t2t_pool :: _alloc(int wait_ms)
+// -2 = T2T2_GROW         : grow if empty (unique to alloc)
+// -1 = T2T2_WAIT_FOREVER : wait forever,
+//  0 = T2T2_NO_WAIT      : dont wait
+// >0                     : wait for some mS
+void * __t2t2_pool :: _alloc(int wait_ms)
 {
-    __t2t_buffer_hdr * h = NULL;
-    if (wait_ms == GROW)
+    __t2t2_buffer_hdr * h = NULL;
+    if (wait_ms == T2T2_GROW)
     {
-        h = q._dequeue(0);
-        if (h == NULL)
+        if (q._empty())
         {
             add_bufs(bufs_to_add_when_growing);
             stats.grows ++;
-            h = q._dequeue(0);
         }
+        h = q._dequeue(0);
     }
     else
     {
@@ -158,17 +157,17 @@ void * __t2t_pool :: _alloc(int wait_ms)
     return h;
 }
 
-void __t2t_pool :: release(void * ptr)
+void __t2t2_pool :: release(void * ptr)
 {
-    __t2t_buffer_hdr * h = (__t2t_buffer_hdr *) ptr;
+    __t2t2_buffer_hdr * h = (__t2t2_buffer_hdr *) ptr;
     h--;
     if (h->list != NULL)
     {
-        __TS2_ASSERT(POOL_RELEASE_ALREADY_ON_LIST,true);
+        __T2T2_ASSERT(POOL_RELEASE_ALREADY_ON_LIST,true);
     }
     if (h->inuse == false)
     {
-        __TS2_ASSERT(DOUBLE_FREE,false);
+        __T2T2_ASSERT(DOUBLE_FREE,false);
         stats.double_frees ++;
     }
     else
@@ -181,17 +180,17 @@ void __t2t_pool :: release(void * ptr)
     }
 }
 
-void __t2t_pool :: get_stats(t2t_pool_stats &_stats) const
+void __t2t2_pool :: get_stats(t2t2_pool_stats &_stats) const
 {
     _stats = stats;
 }
 
-//////////////////////////// __T2T_QUEUE ////////////////////////////
+//////////////////////////// __T2T2_QUEUE ////////////////////////////
 
-__t2t_queue :: __t2t_queue(pthread_mutexattr_t *pmattr,
+__t2t2_queue :: __t2t2_queue(pthread_mutexattr_t *pmattr,
                            pthread_condattr_t *pcattr)
 {
-    __t2t_links::init();
+    __t2t2_links::init();
     pthread_mutex_init(&mutex, pmattr);
     pthread_cond_init(&cond, pcattr);
     if (pcattr)
@@ -199,28 +198,33 @@ __t2t_queue :: __t2t_queue(pthread_mutexattr_t *pmattr,
     else
         // the default condattr clock appears to be REALTIME
         clk_id = CLOCK_REALTIME;
-    buffers.init();
     psetmutex = NULL;
     psetcond = NULL;
     id = 0;
 }
 
-__t2t_queue :: ~__t2t_queue(void)
+__t2t2_queue :: ~__t2t2_queue(void)
 {
     pthread_mutex_destroy(&mutex);
     pthread_cond_destroy(&cond);
 }
 
+bool __t2t2_queue :: _empty(void)
+{
+    Lock  l(&mutex);
+    return buffers.empty();
+}
+
 // -1 : wait forever
 //  0 : dont wait, just return
 // >0 : wait for some number of mS
-__t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
+__t2t2_buffer_hdr * __t2t2_queue :: _dequeue(int wait_ms)
 {
-    __t2t_buffer_hdr * h = NULL;
+    __t2t2_buffer_hdr * h = NULL;
     Lock  l(&mutex);
     if (psetmutex != NULL)
     {
-        __TS2_ASSERT(QUEUE_IN_A_SET,false);
+        __T2T2_ASSERT(QUEUE_IN_A_SET,false);
         return NULL;
     }
     if (wait_ms < 0)
@@ -240,12 +244,12 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
     {
         bool first = true;
         bool timed_out = false;
-        __t2t_timespec  ts;
+        __t2t2_timespec  ts;
         while (buffers.empty() && !timed_out)
         {
             if (first)
             {
-                __t2t_timespec t(wait_ms);
+                __t2t2_timespec t(wait_ms);
                 ts.getNow(clk_id);
                 ts += t;
                 first = false;
@@ -259,20 +263,20 @@ __t2t_buffer_hdr * __t2t_queue :: _dequeue(int wait_ms)
             return NULL;
         }
     }
-    h = buffers.get_next();
+    h = buffers.get_head();
     h->ok();
     if (!_validate(h))
-        __TS2_ASSERT(QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
+        __T2T2_ASSERT(QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
     h->remove();
     return h;
 }
 
-bool __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
+bool __t2t2_queue :: _enqueue(__t2t2_buffer_hdr *h)
 {
     h->ok();
     if (h->list != NULL)
     {
-        __TS2_ASSERT(QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
+        __T2T2_ASSERT(QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return false;
     }
     {
@@ -288,12 +292,12 @@ bool __t2t_queue :: _enqueue(__t2t_buffer_hdr *h)
     return true;
 }
 
-bool __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
+bool __t2t2_queue :: _enqueue_tail(__t2t2_buffer_hdr *h)
 {
     h->ok();
     if (h->list != NULL)
     {
-        __TS2_ASSERT(QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
+        __T2T2_ASSERT(QUEUE_ENQUEUE_ALREADY_ON_A_LIST,false);
         return false;
     }
     {
@@ -309,12 +313,11 @@ bool __t2t_queue :: _enqueue_tail(__t2t_buffer_hdr *h)
     return true;
 }
 
-//////////////////////////// __T2T_QUEUE_SET ////////////////////////////
+//////////////////////////// __T2T2_QUEUE_SET ////////////////////////////
 
-__t2t_queue_set ::__t2t_queue_set(pthread_mutexattr_t *pmattr /*= NULL*/,
-                                  pthread_condattr_t  *pcattr /*= NULL*/)
+__t2t2_queue_set ::__t2t2_queue_set(pthread_mutexattr_t *pmattr /*= NULL*/,
+                                    pthread_condattr_t  *pcattr /*= NULL*/)
 {
-    qs.init();
     pthread_mutex_init(&set_mutex, pmattr);
     pthread_cond_init(&set_cond, pcattr);
 
@@ -323,80 +326,83 @@ __t2t_queue_set ::__t2t_queue_set(pthread_mutexattr_t *pmattr /*= NULL*/,
     else
         // the default condattr clock appears to be REALTIME
         clk_id = CLOCK_REALTIME;
+
+    set_size = 0;
 }
 
-__t2t_queue_set :: ~__t2t_queue_set(void)
+__t2t2_queue_set :: ~__t2t2_queue_set(void)
 {
-    __t2t_queue * q;
-    while ((q = qs.get_next()) != &qs)
+    __t2t2_queue * q;
+    while ((q = qs.get_next()) != qs.self())
         _remove_queue(q);
     pthread_mutex_destroy(&set_mutex);
     pthread_cond_destroy(&set_cond);
 }
 
 bool
-__t2t_queue_set :: _add_queue(__t2t_queue *q, int id)
+__t2t2_queue_set :: _add_queue(__t2t2_queue *q, int id)
 {
-    __t2t_queue::Lock l(&set_mutex);
+    __t2t2_queue::Lock l(&set_mutex);
 
     if (q->list != NULL)
     {
-        __TS2_ASSERT(QUEUE_IN_A_SET, false);
+        __T2T2_ASSERT(QUEUE_IN_A_SET, false);
         return false;
     }
 
-    if (qs.empty())
-        qs.add_next(q);
-    else
-    {
-        __t2t_queue * tq;
-        for (tq = qs.get_next(); tq != &qs; tq = tq->get_next())
-            if (tq->id > id)
-                break;
-        tq->add_prev(q);
-    }
+    // find the correct position in the queues list to
+    // add this queue, based on treating "id" as a sorted
+    // priority.
+    __t2t2_queue * tq;
+    for (tq = qs.get_head(); tq != qs.self(); tq = tq->get_next())
+        if (tq->id > id)
+            break;
+    tq->add_prev(q);
+
     q->set_pmutexpcond(&set_mutex, &set_cond);
     q->id = id;
+    set_size ++;
     return true;
 }
 
 void
-__t2t_queue_set :: _remove_queue(__t2t_queue *q)
+__t2t2_queue_set :: _remove_queue(__t2t2_queue *q)
 {
-    __t2t_queue::Lock l(&set_mutex);
+    __t2t2_queue::Lock l(&set_mutex);
     q->remove();
     q->set_pmutexpcond();
+    set_size --;
 }
 
-__t2t_buffer_hdr *
-__t2t_queue_set :: _dequeue(int wait_ms, int *id)
+__t2t2_buffer_hdr *
+__t2t2_queue_set :: _dequeue(int wait_ms, int *id)
 {
-    __t2t_queue * q;
-    __t2t_buffer_hdr * h = NULL;
+    __t2t2_queue * q;
+    __t2t2_buffer_hdr * h = NULL;
     int qid = -1;
     bool first = true;
-    __t2t_timespec  ts;
+    __t2t2_timespec  ts;
 
     if (qs.empty())
     {
-        __TS2_ASSERT(QUEUE_SET_EMPTY,false);
+        __T2T2_ASSERT(QUEUE_SET_EMPTY,false);
         if (id)
             *id = qid;
         return NULL;
     }
 
-    __t2t_queue::Lock  l(&set_mutex);
+    __t2t2_queue::Lock  l(&set_mutex);
 
     do {
-        __t2t_queue * q0 = qs.get_next();
-        for (q = q0; q != &qs; q = q->get_next())
+        __t2t2_queue * q0 = qs.get_head();
+        for (q = q0; q != qs.self(); q = q->get_next())
         {
-            __t2t_queue::Lock l(&q->mutex);
+            __t2t2_queue::Lock l(&q->mutex);
             if (q->buffers.empty() == false)
             {
-                h = q->buffers.get_next();
+                h = q->buffers.get_head();
                 if (!q->_validate(h))
-                    __TS2_ASSERT(QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
+                    __T2T2_ASSERT(QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
                 h->remove();
                 qid = q->id;
                 goto out;
@@ -412,7 +418,7 @@ __t2t_queue_set :: _dequeue(int wait_ms, int *id)
         {
             if (first)
             {
-                __t2t_timespec t(wait_ms);
+                __t2t2_timespec t(wait_ms);
                 ts.getNow(clk_id);
                 ts += t;
                 first = false;
@@ -430,14 +436,14 @@ out:
     return h;
 }
 
-}; // namespace ThreadSlinger2
+}; // namespace Thread2Thread2
 
 ///////////////////////// STREAM OPS /////////////////////////
 
 // this has to be outside the namespace
 std::ostream &
 operator<<(std::ostream &strm,
-           const ThreadSlinger2::t2t_pool_stats &stats)
+           const Thread2Thread2::t2t2_pool_stats &stats)
 {
     strm << "bufsz " << stats.buffer_size
          << " total " << stats.total_buffers

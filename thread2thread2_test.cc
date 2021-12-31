@@ -2,7 +2,7 @@
 set -e -x
 
 incs=""
-srcs="threadslinger2.cc threadslinger2_test.cc"
+srcs="thread2thread2.cc thread2thread2_test.cc"
 libs="-lpthread"
 defs=""
 cflags="-O3"
@@ -10,34 +10,37 @@ lflags=""
 std="-std=c++11"
 
 clear
-g++ $std $cflags $lflags $defs $incs $srcs $libs  -o t
+rm -f t 0log 0compilelog
+script 0compilelog -c "g++ -fdiagnostics-color=always $std $cflags $lflags $defs $incs $srcs $libs  -o t"
 
 if [[ "x$1" = "x" ]] ; then
-    script 0log -c ./t
+    if [[ -x t ]] ; then
+       script 0log -c ./t
+    fi
 fi
 exit 0
 ;
 #endif
 
-#include "threadslinger2.h"
+#include "thread2thread2.h"
 #include <sys/types.h>
 #include <signal.h>
 #include <string.h>
 
 using namespace std;
 
-namespace ts2 = ThreadSlinger2;
 // neat, but not using them just now:
-//template <class... T> using ts2mb = ts2::t2t_message_base<T...>;
-//template <class    T> using ts2sp = ts2::t2t_shared_ptr  <T>;
+//template <class... T> using t2mb = t2t2::t2t2_message_base<T...>;
+//template <class    T> using t2sp = t2t2::t2t2_shared_ptr  <T>;
+namespace t2t2 = Thread2Thread2;
 
-class my_message_base : public ts2::t2t_message_base<my_message_base>
+class my_message_base : public t2t2::t2t2_message_base<my_message_base>
 {
 public:
     // convenience
-    typedef ts2::t2t_queue<my_message_base> queue_t;
-    typedef ts2::t2t_queue_set<my_message_base> queue_set_t;
-    typedef ts2::t2t_shared_ptr<my_message_base> sp_t;
+    typedef t2t2::t2t2_queue<my_message_base> queue_t;
+    typedef t2t2::t2t2_queue_set<my_message_base> queue_set_t;
+    typedef t2t2::t2t2_shared_ptr<my_message_base> sp_t;
 
     enum msgtype { TYPE_B, TYPE_D1, TYPE_D2 } t;
     int a;
@@ -63,11 +66,12 @@ public:
     }
 };
 
-class my_data : public ts2::t2t_message_base<my_data>
+class my_data : public t2t2::t2t2_message_base<my_data>
 {
 public:
-    typedef ts2::t2t_pool<my_data> pool_t;
-    typedef ts2::t2t_shared_ptr<my_data> sp_t;
+    // convenience
+    typedef t2t2::t2t2_pool<my_data> pool_t;
+    typedef t2t2::t2t2_shared_ptr<my_data> sp_t;
 
     int len;
     char buf[1000];
@@ -87,9 +91,9 @@ class my_message_derived1 : public my_message_base
 {
 public:
     // convenience
-    typedef ts2::t2t_pool<my_message_base,
+    typedef t2t2::t2t2_pool<my_message_base,
                           my_message_derived1> pool1_t;
-    typedef ts2::t2t_shared_ptr<my_message_derived1> sp_t;
+    typedef t2t2::t2t2_shared_ptr<my_message_derived1> sp_t;
 
     int c;
     int d;
@@ -116,9 +120,9 @@ class my_message_derived2 : public my_message_base
 {
 public:
     // convenience
-    typedef ts2::t2t_pool<my_message_base,
+    typedef t2t2::t2t2_pool<my_message_base,
                           my_message_derived2> pool2_t;
-    typedef ts2::t2t_shared_ptr<my_message_derived2> sp_t;
+    typedef t2t2::t2t2_shared_ptr<my_message_derived2> sp_t;
 
     // test hack: if e==-1, that tells recipient to exit.
     int e;
@@ -143,21 +147,21 @@ public:
 };
 
 template <class BaseT, class... derivedTs>
-void printstats(ts2::t2t_pool<BaseT,derivedTs...> *pool,
+void printstats(t2t2::t2t2_pool<BaseT,derivedTs...> *pool,
                 const char *what)
 {
-    ts2::t2t_pool_stats  stats;
+    t2t2::t2t2_pool_stats  stats;
     pool->get_stats(stats);
     cout << what << ": " << stats << endl;
 }
 
 static void
-my_ts2_assert_handler(ts2::ts2_error_t e, bool fatal,
+my_t2t2_assert_handler(t2t2::t2t2_error_t e, bool fatal,
                       const char *filename, int lineno)
 {
     fprintf(stderr,
-            "\n\nERROR: ThreadSlinger2 ASSERTION %d (%s) at %s:%d\n\n",
-            e, ts2::ts2_error_types[(int)e], filename, lineno);
+            "\n\nERROR: Thread2Thread2 ASSERTION %d (%s) at %s:%d\n\n",
+            e, t2t2::t2t2_error_types[(int)e], filename, lineno);
     // i want a core dump that i can gdb
     kill(0, SIGABRT);
 }
@@ -166,7 +170,7 @@ void *reader_thread(void *arg);
 
 int main(int argc, char ** argv)
 {
-    ts2::ts2_assert_handler = &my_ts2_assert_handler;
+    t2t2::t2t2_assert_handler = &my_t2t2_assert_handler;
 
     pthread_mutexattr_t  mattr;
     pthread_condattr_t   cattr;
@@ -191,10 +195,13 @@ int main(int argc, char ** argv)
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
 
+    printf("queue 1 is currently %s\n",
+           myqueue1.empty() ? "EMPTY" : "NOT EMPTY");
+
     printf("attempting first alloc\n");
     my_message_base::sp_t  spmb;
     if (mypool1.alloc(&spmb,
-                      ts2::NO_WAIT,
+                      t2t2::T2T2_NO_WAIT,
                       1,2))
     {
         printf("enqueuing a message NOW\n");
@@ -204,13 +211,16 @@ int main(int argc, char ** argv)
     else
         printf("ALLOC FAILED\n");
 
+    printf("queue 1 is currently %s\n",
+           myqueue1.empty() ? "EMPTY" : "NOT EMPTY");
+
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
 
     printf("attempting second alloc\n");
     my_message_derived1::sp_t  spmd1;
     if (mypool1.alloc(&spmd1,
-                     ts2::GROW,
+                     t2t2::T2T2_GROW,
                      3,4,5,6))
     {
         datapool.alloc(&spmd1->data, 1000);
