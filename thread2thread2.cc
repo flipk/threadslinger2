@@ -331,7 +331,7 @@ __t2t2_queue_set ::__t2t2_queue_set(pthread_mutexattr_t *pmattr /*= NULL*/,
 __t2t2_queue_set :: ~__t2t2_queue_set(void)
 {
     __t2t2_queue * q;
-    while ((q = qs.get_next()) != qs.self())
+    while ((q = qs.get_next()) != qs.head())
         _remove_queue(q);
     pthread_mutex_destroy(&set_mutex);
     pthread_cond_destroy(&set_cond);
@@ -352,7 +352,7 @@ __t2t2_queue_set :: _add_queue(__t2t2_queue *q, int id)
     // add this queue, based on treating "id" as a sorted
     // priority.
     __t2t2_queue * tq;
-    for (tq = qs.get_head(); tq != qs.self(); tq = tq->get_next())
+    for (tq = qs.get_head(); tq != qs.head(); tq = tq->get_next())
         if (tq->id > id)
             break;
     tq->add_prev(q);
@@ -393,7 +393,7 @@ __t2t2_queue_set :: _dequeue(int wait_ms, int *id)
 
     do {
         __t2t2_queue * q0 = qs.get_head();
-        for (q = q0; q != qs.self(); q = q->get_next())
+        for (q = q0; q != qs.head(); q = q->get_next())
         {
             __t2t2_queue::Lock l(&q->mutex);
             if (q->buffers.empty() == false)

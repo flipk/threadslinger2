@@ -268,8 +268,8 @@ static_assert(std::is_trivial<__t2t2_buffer_hdr>::value == true,
 // as a normal class member.  a links head is a specialization of a
 // links, because "next" is actually the head of the list, "prev"
 // is the tail, and it has an "empty" primitive. when the list head
-// is empty, next and prev point to self(); also the first item's
-// prev and the last item's next both point to head.self().
+// is empty, next and prev point to head(); also the first item's
+// prev and the last item's next both point to head.head().
 template <class T>
 struct __t2t2_links_head : public __t2t2_links<T>
 {
@@ -280,7 +280,7 @@ struct __t2t2_links_head : public __t2t2_links<T>
         return ((__t2t2_links<T>::next == this) &&
                 (__t2t2_links<T>::prev == this));
     }
-    T * self(void)
+    T * head(void)
     {
         return (T*) this;
     }
@@ -372,7 +372,7 @@ public:
     // return true if the buffer hdr is already on this
     // buffers list.
     bool _onthislist(__t2t2_buffer_hdr *h) {
-        return (h->list == buffers.self());
+        return (h->list == buffers.head());
     }
 
     __T2T2_EVIL_CONSTRUCTORS(__t2t2_queue);
