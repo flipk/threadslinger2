@@ -179,10 +179,16 @@ struct __t2t2_links
     uint32_t  magic;
     bool ok(void) const
     {
-        if (magic == LINKS_MAGIC)
-            return true;
-        __T2T2_ASSERT(LINKS_MAGIC_CORRUPT,true);
-        return false;
+        // if this macro is not defined, this function
+        // becomes effectively a no-op, and the compiler will
+        // optimize it away completely.
+        if (magic != LINKS_MAGIC)
+        {
+            __T2T2_ASSERT(LINKS_MAGIC_CORRUPT,true);
+            // should not be reached, if assert(fatal=true) does it's job...
+            return false;
+        }
+        return true;
     }
     void init(void)
     {
@@ -247,12 +253,9 @@ struct __t2t2_links
 
 struct __t2t2_buffer_hdr : public __t2t2_links<__t2t2_buffer_hdr>
 {
-    bool inuse;
-    // note this overrides and chains __t2t2_links::init
     void init(void)
     {
         __t2t2_links::init();
-        inuse = false;
     }
 } __attribute__ ((aligned (sizeof(void*))));
 
@@ -273,13 +276,24 @@ struct __t2t2_links_head : public __t2t2_links<T>
     __t2t2_links_head(void) { __t2t2_links<T>::init(); }
     bool empty(void) const
     {
-        return (__t2t2_links<T>::ok() &&
-                (__t2t2_links<T>::next == this) &&
+        __t2t2_links<T>::ok();
+        return ((__t2t2_links<T>::next == this) &&
                 (__t2t2_links<T>::prev == this));
     }
-    T * self(void) { return (T*) this; }
-    T * get_head(void) { return __t2t2_links<T>::get_next(); }
-    T * get_tail(void) { return __t2t2_links<T>::get_prev(); }
+    T * self(void)
+    {
+        return (T*) this;
+    }
+    T * get_head(void)
+    {
+        __t2t2_links<T>::ok();
+        return (T*) __t2t2_links<T>::next;
+    }
+    T * get_tail(void)
+    {
+        __t2t2_links<T>::ok();
+        return (T*) __t2t2_links<T>::prev;
+    }
 };
 
 //////////////////////////// __T2T2_TIMESPEC ////////////////////////////
@@ -354,6 +368,12 @@ public:
     bool _enqueue(__t2t2_buffer_hdr *h);
     // a queue should be a fifo, to keep msgs in order.
     bool _enqueue_tail(__t2t2_buffer_hdr *h);
+
+    // return true if the buffer hdr is already on this
+    // buffers list.
+    bool _onthislist(__t2t2_buffer_hdr *h) {
+        return (h->list == buffers.self());
+    }
 
     __T2T2_EVIL_CONSTRUCTORS(__t2t2_queue);
     __T2T2_EVIL_NEW(__t2t2_queue);

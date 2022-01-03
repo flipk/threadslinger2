@@ -151,7 +151,6 @@ void * __t2t2_pool :: _alloc(int wait_ms)
         stats.alloc_fails ++;
         return NULL;
     }
-    h->inuse = true;
     stats.buffers_in_use++;
     h++;
     return h;
@@ -163,21 +162,20 @@ void __t2t2_pool :: release(void * ptr)
     h--;
     if (h->list != NULL)
     {
-        __T2T2_ASSERT(POOL_RELEASE_ALREADY_ON_LIST,true);
+        if (q._onthislist(h))
+        {
+            __T2T2_ASSERT(DOUBLE_FREE,false);
+            stats.double_frees ++;
+        }
+        else
+        {
+            __T2T2_ASSERT(POOL_RELEASE_ALREADY_ON_LIST,true);
+        }
     }
-    if (h->inuse == false)
-    {
-        __T2T2_ASSERT(DOUBLE_FREE,false);
-        stats.double_frees ++;
-    }
-    else
-    {
-        h->inuse = false;
-        // ignoring return value because we've already
-        // checked the h->list condition above.
-        q._enqueue(h);
-        stats.buffers_in_use --;
-    }
+    // ignoring return value because we've already
+    // checked the h->list condition above.
+    q._enqueue(h);
+    stats.buffers_in_use --;
 }
 
 void __t2t2_pool :: get_stats(t2t2_pool_stats &_stats) const
