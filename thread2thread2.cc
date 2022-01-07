@@ -225,25 +225,22 @@ __t2t2_buffer_hdr * __t2t2_queue :: _dequeue(int wait_ms)
         __T2T2_ASSERT(QUEUE_IN_A_SET,false);
         return NULL;
     }
-    if (wait_ms < 0)
+
+    bool first = true;
+    __t2t2_timespec  ts;
+    // if wait_ms == 0, just short circuit the
+    // while loop and check buffers.empty only once.
+    bool timed_out = (wait_ms == 0);
+    bool empty = buffers.empty();
+
+    while (empty && !timed_out)
     {
-        // wait forever
-        while (buffers.empty())
-            pthread_cond_wait(&cond, &mutex);
-    }
-    else if (wait_ms == 0)
-    {
-        if (buffers.empty())
+        if (wait_ms < 0)
         {
-            return NULL;
+            // we never set timed_out.
+            pthread_cond_wait(&cond, &mutex);
         }
-    }
-    else // wait_ms > 0
-    {
-        bool first = true;
-        bool timed_out = false;
-        __t2t2_timespec  ts;
-        while (buffers.empty() && !timed_out)
+        else // wait_ms > 0 (note ==0 was already checked)
         {
             if (first)
             {
@@ -253,19 +250,19 @@ __t2t2_buffer_hdr * __t2t2_queue :: _dequeue(int wait_ms)
                 first = false;
             }
             int ret = pthread_cond_timedwait(&cond, &mutex, &ts);
-            if (ret != 0)
+            if (ret == ETIMEDOUT)
                 timed_out = true;
         }
-        if (timed_out)
-        {
-            return NULL;
-        }
+        empty = buffers.empty();
     }
-    h = buffers.get_head();
-    h->ok();
-    if (!_validate(h))
-        __T2T2_ASSERT(QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
-    h->remove();
+    if (!empty)
+    {
+        h = buffers.get_head();
+        h->ok();
+        if (!_validate(h))
+            __T2T2_ASSERT(QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
+        h->remove();
+    }
     return h;
 }
 
@@ -350,15 +347,17 @@ __t2t2_queue_set :: _add_queue(__t2t2_queue *q, int id)
 
     // find the correct position in the queues list to
     // add this queue, based on treating "id" as a sorted
-    // priority.
+    // priority. note, if the qs is empty, tq will end up
+    // pointing to the head iself, which is ok, because
+    // the add_prev below still does the right thing, adding
+    // the first item to the empty list.
     __t2t2_queue * tq;
     for (tq = qs.get_head(); tq != qs.head(); tq = tq->get_next())
         if (tq->id > id)
             break;
-    tq->add_prev(q);
-
     q->set_pmutexpcond(&set_mutex, &set_cond);
     q->id = id;
+    tq->add_prev(q);
     set_size ++;
     return true;
 }
@@ -372,47 +371,59 @@ __t2t2_queue_set :: _remove_queue(__t2t2_queue *q)
     set_size --;
 }
 
+// this function assumes set_mutex is locked.
+__t2t2_buffer_hdr *
+__t2t2_queue_set :: check_qs(int *id)
+{
+    __t2t2_buffer_hdr * h = NULL;
+    for (__t2t2_queue * q = qs.get_head();
+         q != qs.head();
+         q = q->get_next())
+    {
+        __t2t2_queue::Lock l(&q->mutex);
+        if (q->buffers.empty() == false)
+        {
+            h = q->buffers.get_head();
+            if (!q->_validate(h))
+                __T2T2_ASSERT(QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
+            h->remove();
+            if (id)
+                *id = q->id;
+            break;
+        }
+    }
+    return h;
+}
+
 __t2t2_buffer_hdr *
 __t2t2_queue_set :: _dequeue(int wait_ms, int *id)
 {
-    __t2t2_queue * q;
     __t2t2_buffer_hdr * h = NULL;
-    int qid = -1;
     bool first = true;
     __t2t2_timespec  ts;
+    // if wait_ms == 0, just short circuit the
+    // while loop and check_qs() only once.
+    bool timed_out = (wait_ms == 0);
 
     if (qs.empty())
     {
         __T2T2_ASSERT(QUEUE_SET_EMPTY,false);
         if (id)
-            *id = qid;
+            *id = -1;
         return NULL;
     }
 
     __t2t2_queue::Lock  l(&set_mutex);
 
-    do {
-        __t2t2_queue * q0 = qs.get_head();
-        for (q = q0; q != qs.head(); q = q->get_next())
+    h = check_qs(id);
+    while (!h && !timed_out)
+    {
+        if (wait_ms < 0)
         {
-            __t2t2_queue::Lock l(&q->mutex);
-            if (q->buffers.empty() == false)
-            {
-                h = q->buffers.get_head();
-                if (!q->_validate(h))
-                    __T2T2_ASSERT(QUEUE_DEQUEUE_NOT_ON_THIS_LIST,true);
-                h->remove();
-                qid = q->id;
-                goto out;
-            }
-        }
-        if (wait_ms == 0)
-            goto out;
-        else if (wait_ms < 0)
-        {
+            // never set timed_out.
             pthread_cond_wait(&set_cond, &set_mutex);
         }
-        else // wait_ms > 0
+        else // wait_ms > 0 (note ==0 was already checked)
         {
             if (first)
             {
@@ -421,16 +432,15 @@ __t2t2_queue_set :: _dequeue(int wait_ms, int *id)
                 ts += t;
                 first = false;
             }
-            int ret = pthread_cond_timedwait(
-                &set_cond, &set_mutex, &ts);
-            if (ret != 0)
-                goto out;
+            int ret = pthread_cond_timedwait(&set_cond, &set_mutex, &ts);
+            if (ret == ETIMEDOUT)
+                timed_out = true;
         }
-    } while (h == NULL);
-
-out:
-    if (id)
-        *id = qid;
+        // always check again after cond wait returns,
+        // if there's a race on expiry vs enqueue,
+        // always win on the side of the enqueue.
+        h = check_qs(id);
+    }
     return h;
 }
 

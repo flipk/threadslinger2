@@ -389,6 +389,7 @@ class __t2t2_queue_set
     clockid_t         clk_id;
     __t2t2_links_head<__t2t2_queue> qs;
     int set_size;
+    __t2t2_buffer_hdr * check_qs(int *id);
 public:
     __t2t2_queue_set(pthread_mutexattr_t *pmattr = NULL,
                     pthread_condattr_t  *pcattr = NULL);
