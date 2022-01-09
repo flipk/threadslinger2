@@ -42,22 +42,22 @@ public:
     typedef t2t2::t2t2_queue_set<my_message_base> queue_set_t;
     typedef t2t2::t2t2_shared_ptr<my_message_base> sp_t;
 
-    enum msgtype { TYPE_B, TYPE_D1, TYPE_D2 } t;
+    enum msgtype { TYPE_B, TYPE_D1, TYPE_D2 } type;
     int a;
     int b;
     my_message_base(int _a, int _b)
-        : t(TYPE_B), a(_a), b(_b)
+        : type(TYPE_B), a(_a), b(_b)
     {
-        printf("constructing my_message_base type %d a=%d b=%d\n", t,a,b);
+        printf("constructing my_message_base type %d a=%d b=%d\n", type,a,b);
     }
     my_message_base(msgtype _t, int _a, int _b)
-        : t(_t), a(_a), b(_b)
+        : type(_t), a(_a), b(_b)
     {
-        printf("constructing my_message_base type %d a=%d b=%d\n", t,a,b);
+        printf("constructing my_message_base type %d a=%d b=%d\n", type,a,b);
     }
     virtual ~my_message_base(void)
     {
-        printf("destructing my_message_base type %d a=%d b=%d\n", t,a,b);
+        printf("destructing my_message_base type %d a=%d b=%d\n", type,a,b);
     }
     virtual void print(void) const
     {
@@ -194,6 +194,7 @@ int main(int argc, char ** argv)
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
+    printstats(&datapool, "data");
 
     printf("queue 1 is currently %s\n",
            myqueue1.empty() ? "EMPTY" : "NOT EMPTY");
@@ -216,6 +217,7 @@ int main(int argc, char ** argv)
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
+    printstats(&datapool, "data");
 
     printf("attempting second alloc\n");
     my_message_derived1::sp_t  spmd1;
@@ -234,6 +236,7 @@ int main(int argc, char ** argv)
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
+    printstats(&datapool, "data");
 
     printf("attempting third alloc\n");
     my_message_derived2::sp_t  spmd2;
@@ -250,6 +253,7 @@ int main(int argc, char ** argv)
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
+    printstats(&datapool, "data");
 
     printf("\nnow starting reader thread:\n");
 
@@ -287,6 +291,7 @@ int main(int argc, char ** argv)
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
+    printstats(&datapool, "data");
 
     return 0;
 }
@@ -299,35 +304,56 @@ void *reader_thread(void *arg)
     bool keep_going = true;
     while (keep_going)
     {
-        my_message_base::sp_t x;
+        my_message_base::sp_t mb;
         int qid = -1;
 
         printf("READER entering dequeue()\n");
 
-        x = qset->dequeue(250, &qid);
+        mb = qset->dequeue(250, &qid);
 
-        if (x)
+        if (mb)
         {
             printf("READER GOT MSG on queue %d:\n", qid);
-            x->print();
+            mb->print();
 
-            my_message_derived1::sp_t  y;
-            // this one tests the casting operator=
-            if (y = x)
-                printf("dynamic cast to md1 is OK! c,d = %d,%d\n",
-                       y->c, y->d);
-
-            // this one tests the casting constructor
-            my_message_derived2::sp_t  z = x;
-            if (z)
+            switch (mb->type)
             {
-                printf("dynamic cast to md2 is OK! e,f,g = %d,%d,%d\n",
-                       z->e, z->f, z->g);
-                if (z->e == -1)
+            case my_message_base::TYPE_B:
+            {
+                printf("type is my_message_base\n");
+                break;
+            }
+            case my_message_base::TYPE_D1:
+            {
+                my_message_derived1::sp_t  md1;
+                // this one tests the casting operator=
+                if (md1 = mb)
+                    printf("dynamic cast to md1 is OK! c,d = %d,%d\n",
+                           md1->c, md1->d);
+                else
+                    printf("dynamic cast to md1 FAILED\n");
+                break;
+            }
+            case my_message_base::TYPE_D2:
+            {
+                // this one tests the casting constructor
+                my_message_derived2::sp_t  md2 = mb;
+                if (md2)
                 {
-                    printf("This is an EXIT message!\n");
-                    keep_going = false;
+                    printf("dynamic cast to md2 is OK! e,f,g = %d,%d,%d\n",
+                           md2->e, md2->f, md2->g);
+                    if (md2->e == -1)
+                    {
+                        printf("This is an EXIT message!\n");
+                        keep_going = false;
+                    }
                 }
+                else
+                    printf("dynamic cast to md2 FAILED\n");
+                break;
+            }
+            default:
+                printf("unknown message type %u\n", mb->type);
             }
         }
         else
