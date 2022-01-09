@@ -134,8 +134,8 @@ struct t2t2_shared_ptr {
 
     // the following two methods are public, but not documented,
     // because they really should only be used internally.
-    void give(T * _ptr);
-    T * take(void);
+    void _give(T * _ptr);
+    T * _take(void);
 
     /** just like std::shared_ptr, this returns the ref count
      * of the contained object.

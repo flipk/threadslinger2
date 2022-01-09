@@ -87,7 +87,7 @@ void t2t2_shared_ptr<T> :: reset(T * _ptr /*= NULL*/)
 }
 
 template<class T>
-void t2t2_shared_ptr<T> :: give(T * _ptr)
+void t2t2_shared_ptr<T> :: _give(T * _ptr)
 {
     deref();
     ptr = _ptr;
@@ -98,7 +98,7 @@ void t2t2_shared_ptr<T> :: give(T * _ptr)
 }
 
 template<class T>
-T * t2t2_shared_ptr<T> :: take(void)
+T * t2t2_shared_ptr<T> :: _take(void)
 {
     T * ret = ptr;
     // we are letting the caller take ownership from us,
@@ -481,7 +481,7 @@ bool t2t2_queue<BaseT> :: enqueue(t2t2_shared_ptr<T> &_msg)
     static_assert(std::is_base_of<BaseT, T>::value == true,
                   "enqueued type must be derived from "
                   "base type of the queue");
-    BaseT * msg = _msg.take();
+    BaseT * msg = _msg._take();
     if (msg)
     {
         __t2t2_buffer_hdr * h = (__t2t2_buffer_hdr *) msg;
@@ -511,7 +511,7 @@ t2t2_shared_ptr<BaseT>   t2t2_queue<BaseT> :: dequeue(int wait_ms)
     if (h)
     {
         h++;
-        ret.give((BaseT*) h);
+        ret._give((BaseT*) h);
     }
     return ret;
 }
@@ -555,7 +555,7 @@ t2t2_shared_ptr<BaseT> t2t2_queue_set<BaseT> :: dequeue(int wait_ms,
     if (h)
     {
         h++;
-        ret.give((BaseT*) h);
+        ret._give((BaseT*) h);
     }
     return ret;
 }
