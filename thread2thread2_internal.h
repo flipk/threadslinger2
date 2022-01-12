@@ -562,6 +562,21 @@ t2t2_shared_ptr<BaseT> t2t2_queue_set<BaseT> :: dequeue(int wait_ms,
 
 //////////////////////////// T2T2_MESSAGE_BASE<> ////////////////////////////
 
+// NOTE
+//        before you ask, I am aware of the "placement new" operator
+//        syntax for tricking C++ into constructing a void*ptr into
+//        a type, and also the trick of calling obj->TYPE::~TYPE() to
+//        destruct it.
+// e.g.
+//          T * obj = (T*) allocate_memory(sizeof(T));
+//          new (obj) T(std::forward<ConstructorArgs>(args)...);
+// and
+//          obj->T::~T();
+// BUT
+//        I am not using that trick, because the TYPE::~TYPE()
+//        technique does not invoke virtual destructors!  That's kind
+//        of important!  This does that properly.
+
 template <class BaseT>
 //static class method
 void * t2t2_message_base<BaseT> :: operator new(
