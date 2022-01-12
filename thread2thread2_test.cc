@@ -161,7 +161,7 @@ my_t2t2_assert_handler(t2t2::t2t2_error_t e, bool fatal,
 {
     fprintf(stderr,
             "\n\nERROR: Thread2Thread2 ASSERTION %d (%s) at %s:%d\n\n",
-            e, t2t2::t2t2_error_types[(int)e], filename, lineno);
+            (int)e, t2t2::t2t2_error_types[(int)e], filename, lineno);
     // i want a core dump that i can gdb
     kill(0, SIGABRT);
 }
