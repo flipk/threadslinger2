@@ -1,26 +1,3 @@
-#if 0
-set -e -x
-
-incs=""
-srcs="thread2thread2.cc thread2thread2_test.cc"
-libs="-lpthread"
-defs=""
-cflags="-O3"
-lflags=""
-std="-std=c++11"
-
-clear
-rm -f t 0log 0compilelog
-script 0compilelog -c "g++ -fdiagnostics-color=always $std $cflags $lflags $defs $incs $srcs $libs  -o t"
-
-if [[ "x$1" = "x" ]] ; then
-    if [[ -x t ]] ; then
-       script 0log -c ./t
-    fi
-fi
-exit 0
-;
-#endif
 
 #include "thread2thread2.h"
 #include <sys/types.h>
