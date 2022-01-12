@@ -1,4 +1,6 @@
 *~
-t
 /cscope-c++
 /0*
+/obj
+/dox
+/ts2.bundle
