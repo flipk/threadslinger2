@@ -146,6 +146,10 @@ public:
     }
 };
 
+typedef t2t2::t2t2_pool<my_message_base,
+                        my_message_derived1,
+                        my_message_derived2> pool1and2_t;
+
 template <class BaseT, class... derivedTs>
 void printstats(t2t2::t2t2_pool<BaseT,derivedTs...> *pool,
                 const char *what)
@@ -181,6 +185,7 @@ int main(int argc, char ** argv)
 
     my_message_derived1::pool1_t   mypool1( 1,10,&mattr,&cattr);
     my_message_derived2::pool2_t   mypool2( 1,10,&mattr,&cattr);
+    pool1and2_t                mypool1and2( 1,10,&mattr,&cattr);
     my_message_base    ::queue_t  myqueue1(      &mattr,&cattr);
     my_message_base    ::queue_t  myqueue2(      &mattr,&cattr);
     my_message_base::queue_set_t      qset(      &mattr,&cattr);
@@ -194,6 +199,7 @@ int main(int argc, char ** argv)
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
+    printstats(&mypool1and2, "1and2");
     printstats(&datapool, "data");
 
     printf("queue 1 is currently %s\n",
@@ -217,6 +223,7 @@ int main(int argc, char ** argv)
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
+    printstats(&mypool1and2, "1and2");
     printstats(&datapool, "data");
 
     printf("attempting second alloc\n");
@@ -236,11 +243,12 @@ int main(int argc, char ** argv)
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
+    printstats(&mypool1and2, "1and2");
     printstats(&datapool, "data");
 
     printf("attempting third alloc\n");
     my_message_derived2::sp_t  spmd2;
-    if (mypool2.alloc(&spmd2,
+    if (mypool1and2.alloc(&spmd2,
                       1000,
                      7,8,9,10,11))
     {
@@ -253,6 +261,7 @@ int main(int argc, char ** argv)
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
+    printstats(&mypool1and2, "1and2");
     printstats(&datapool, "data");
 
     printf("\nnow starting reader thread:\n");
@@ -291,6 +300,7 @@ int main(int argc, char ** argv)
 
     printstats(&mypool1, "1");
     printstats(&mypool2, "2");
+    printstats(&mypool1and2, "1and2");
     printstats(&datapool, "data");
 
     return 0;
