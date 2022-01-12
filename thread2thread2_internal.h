@@ -25,21 +25,33 @@
 
 //////////////////////////// TRAITS STUFF ////////////////////////////
 
-template <typename... Ts>
+// note that largest_type not only calculates the size
+// of the largest type, but also verifies all the derivedTs
+// are actually derived from the BaseT.
+template <typename BaseT, typename... Ts>
 struct largest_type;
 
-template <typename T>
-struct largest_type<T>
+template <typename BaseT>
+struct largest_type<BaseT>
 {
-    using type = T;
+    using type = BaseT;
     static const int size = sizeof(type);
 };
 
-template <typename T, typename U, typename... Ts>
-struct largest_type<T, U, Ts...>
+template <typename BaseT, typename derivedT>
+struct largest_type<BaseT, derivedT>
+{
+    static_assert(std::is_base_of<BaseT, derivedT>::value == true,
+                  "derivedTs must be derived from BaseT");
+    using type = derivedT;
+    static const int size = sizeof(type);
+};
+
+template <typename BaseT, typename T, typename U, typename... Ts>
+struct largest_type<BaseT, T, U, Ts...>
 {
     using type =
-        typename largest_type<
+        typename largest_type<BaseT,
         typename std::conditional<
             (sizeof(U) <= sizeof(T)), T, U
             >::type, Ts...

@@ -206,6 +206,8 @@ template <class BaseT, class... derivedTs>
 class t2t2_pool : public __t2t2_pool
 {
 public:
+    // note largest_type<> also verifies all the derivedTs
+    // are derived from BaseT.
     static const int buffer_size = largest_type<BaseT,derivedTs...>::size;
     /** \brief constructor for a pool.
      * \param _num_bufs_init  how many buffers to put in pool initially.
