@@ -18,7 +18,7 @@ t1_LIBS = -lpthread
 EXTRA_CLEAN += testrun_clean
 
 # if you just type 'make' it does everything.
-test: all doxygen testrun
+test: all testrun
 
 testrun: 0log
 
