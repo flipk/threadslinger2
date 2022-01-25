@@ -201,7 +201,14 @@ enum wait_flag
 //////////////////////////// T2T2_POOL ////////////////////////////
 
 /** template for a user's pool.
- * \param T  the user's derived message class. */
+ * \param BaseT  the user's message class which is derived from
+ *               t2t2_message_base.
+ * \param derivedTs a list of user's message classes which are further
+ *               derived from BaseT; can be an empty list (not present)
+ *               if the user has no further derived messages from BaseT.
+ * \note the size of the buffers in this pool will be dermined by the
+ *    size of the largest class in BaseT and derivedTs list.
+ */
 template <class BaseT, class... derivedTs>
 class t2t2_pool : public __t2t2_pool
 {
@@ -554,15 +561,59 @@ This API allows you to do the following:
         form:
 \code
 class MY_MSG_BASE : public Thread2Thread2::t2t2_message_base<MY_MSG_BASE>
-{ <fields and methods here> }
+{
+public:
+   // recommend defining some "convenience" typedefs here, such as:
+   typedef Thread2Thread2::t2t2_queue<MY_MSG_BASE> queue_t;
+   typedef Thread2Thread2::t2t2_queue_set<MY_MSG_BASE> queue_set_t;
+   typedef Thread2Thread2::t2t2_shared_ptr<MY_MSG_BASE> sp_t;
 
-[optional, if desired:]
+   MY_MSG_BASE( <constructor args here> );
+   MY_MSG_BASE( <optional constructor overloading is supported> );
+   virtual ~MY_MSG_BASE(void); // optional destructor supported
+
+   <fields and methods here>
+};
+\endcode
+
+   <li> The user may optionally specialize further derived message
+        types from MY_MSG_BASE, if desired.
+
+\code
 class MY_MSG_DERIVED_TYPE1 : public MY_MSG_BASE
-{ <fields and methods here> }
+{
+public:
+   // recommend defining some "convenience" typedefs here, such as:
+   typedef Thread2Thread2::t2t2_shared_ptr<MY_MSG_DERIVED_TYPE1> sp_t;
+   // optionally define a pool which contains buffers big enough
+   // only for this one message type.
+   typedef Thread2Thread2::t2t2_pool<MY_MSG_BASE,
+                                     MY_MSG_DERIVED_TYPE1> pool_t;
 
-[optional, if desired:]
+   MY_MSG_DERIVED_TYPE1( <constructor args> );
+   virtual ~MY_MSG_DERIVED_TYPE1(void);
+
+   <fields and methods here>
+};
+
 class MY_MSG_DERIVED_TYPE2 : public MY_MSG_BASE
-{ <fields and methods here> }
+{
+   // recommend defining some "convenience" typedefs here, such as:
+   typedef Thread2Thread2::t2t2_shared_ptr<MY_MSG_DERIVED_TYPE2> sp_t;
+
+   MY_MSG_DERIVED_TYPE2( <constructor args> );
+   virtual ~MY_MSG_DERIVED_TYPE2(void);
+
+   <fields and methods here>
+};
+
+// or, optionally define a single pool which contains buffers
+// big enough for multiple message types -- just list the types
+// after the base class type. The t2t2_pool template will figure
+// out which derived type is the largest and define buffers that size.
+typedef Thread2Thread2::t2t2_pool<MY_MSG_BASE,
+                                  MY_MSG_DERIVED_TYPE1,
+                                  MY_MSG_DERIVED_TYPE2> pool_1_and_2_t;
 \endcode
 
    <li> A t2t2_pool<> must be declared using a class derived from
