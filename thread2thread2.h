@@ -16,7 +16,7 @@
 #include <atomic>
 #include <type_traits>
 
-#include "posix_fe.h"
+#include "pxfe_shared_ptr.h"
 
 /** Thread2Thread2 namespace, encapsulates all data structures for this API
  */
@@ -369,7 +369,7 @@ std::ostream &operator<<(std::ostream &strm,
 Classes of interest provided by this library:
  <ul>
  <li> \ref Thread2Thread2::t2t2_message_base
- <li> \ref Thread2Thread2::pxfe_shared_ptr
+ <li> \ref pxfe_shared_ptr
  <li> \ref Thread2Thread2::wait_flag
  <li> \ref Thread2Thread2::t2t2_pool
     <ul>
@@ -468,7 +468,7 @@ public:
    // recommend defining some "convenience" typedefs here, such as:
    typedef Thread2Thread2::t2t2_queue<MY_MSG_BASE> queue_t;
    typedef Thread2Thread2::t2t2_queue_set<MY_MSG_BASE> queue_set_t;
-   typedef Thread2Thread2::pxfe_shared_ptr<MY_MSG_BASE> sp_t;
+   typedef pxfe_shared_ptr<MY_MSG_BASE> sp_t;
 
    MY_MSG_BASE( <constructor args here> );
    MY_MSG_BASE( <optional constructor overloading is supported> );
@@ -486,7 +486,7 @@ class MY_MSG_DERIVED_TYPE1 : public MY_MSG_BASE
 {
 public:
    // recommend defining some "convenience" typedefs here, such as:
-   typedef Thread2Thread2::pxfe_shared_ptr<MY_MSG_DERIVED_TYPE1> sp_t;
+   typedef pxfe_shared_ptr<MY_MSG_DERIVED_TYPE1> sp_t;
    // optionally define a pool which contains buffers big enough
    // only for this one message type.
    typedef Thread2Thread2::t2t2_pool<MY_MSG_BASE,
@@ -501,7 +501,7 @@ public:
 class MY_MSG_DERIVED_TYPE2 : public MY_MSG_BASE
 {
    // recommend defining some "convenience" typedefs here, such as:
-   typedef Thread2Thread2::pxfe_shared_ptr<MY_MSG_DERIVED_TYPE2> sp_t;
+   typedef pxfe_shared_ptr<MY_MSG_DERIVED_TYPE2> sp_t;
 
    MY_MSG_DERIVED_TYPE2( <constructor args> );
    virtual ~MY_MSG_DERIVED_TYPE2(void);
@@ -590,7 +590,7 @@ public:
     typedef t2t2::t2t2_pool      <my_message_base> pool_t;
     typedef t2t2::t2t2_queue     <my_message_base> queue_t;
     typedef t2t2::t2t2_queue_set <my_message_base> queue_set_t;
-    typedef t2t2::pxfe_shared_ptr<my_message_base> sp_t;
+    typedef pxfe_shared_ptr<my_message_base> sp_t;
 
     <your message contents here>
 
@@ -611,7 +611,7 @@ public:
     // convenience
     typedef t2t2::t2t2_pool<my_message_base,
                           my_message_derived1> pool1_t;
-    typedef t2t2::pxfe_shared_ptr<my_message_derived1> sp_t;
+    typedef pxfe_shared_ptr<my_message_derived1> sp_t;
 
     <your message contents here>
 
@@ -632,7 +632,7 @@ public:
     // convenience
     typedef t2t2::t2t2_pool<my_message_base,
                           my_message_derived2> pool2_t;
-    typedef t2t2::pxfe_shared_ptr<my_message_derived2> sp_t;
+    typedef pxfe_shared_ptr<my_message_derived2> sp_t;
 
     <your message contents here>
 
@@ -657,7 +657,7 @@ public:
 \subsection sharedptr Shared Pointers
 
 Some of the functions below return a
-\ref Thread2Thread2::pxfe_shared_ptr
+\ref pxfe_shared_ptr
 which automatically manages reference counts in the returned
 message. The user may assign to another shared_ptr or keep
 this shared pointer as long as wanted.  Just like std::shared_ptr,
@@ -776,7 +776,7 @@ The recipient thread then dequeues from these queues using
 \ref Thread2Thread2::t2t2_queue_set::dequeue
 to process the messages in its own time.
 
-\ref Thread2Thread2::pxfe_shared_ptr has a helpful facility for
+\ref pxfe_shared_ptr has a helpful facility for
 converting between message types. It has a copy-constructor which
 invokes dynamic_cast and attempts to convert from the base class to
 the derived class, and it also has a casting assignment operator which

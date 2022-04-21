@@ -8,13 +8,11 @@ PROG_TARGETS = t1
 
 t2t2_TARGET = $(OBJDIR)/libt2t2.a
 t2t2_CXXSRCS = thread2thread2.cc
-t2t2_INCS = -I../pfkutils/libpfkutil
 t2t2_DOXYFILE = Doxy.t2t2
 DOXYGEN_TARGETS += t2t2
 
 t1_TARGET = $(OBJDIR)/t1
 t1_CXXSRCS = thread2thread2_test.cc
-t1_INCS = -I../pfkutils/libpfkutil
 t1_DEPLIBS = $(t2t2_TARGET)
 t1_LIBS = -lpthread
 EXTRA_CLEAN += testrun_clean
