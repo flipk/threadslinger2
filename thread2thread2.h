@@ -16,6 +16,8 @@
 #include <atomic>
 #include <type_traits>
 
+#include "posix_fe.h"
+
 /** Thread2Thread2 namespace, encapsulates all data structures for this API
  */
 namespace Thread2Thread2 {
@@ -82,103 +84,6 @@ struct t2t2_pool_stats {
     int alloc_fails;      //!< how many times alloc/get returned null
     int grows;            //!< how many times pool has been grown
     int double_frees;     //!< how many times free buffer freed again
-};
-
-//////////////////////////// T2T2_SHARED_PTR ////////////////////////////
-
-/** t2t2 version of std::shared_ptr, used by t2t2_queue
- * \param T  the message class being shared.
- *
- * \note I recommend making a convenience typedef in every message
- *    class you create, like this:
-\code
-class MyMessage1 : public Thread2Thread2::t2t2_message_base<MyMessage1>
-{
-public:
-   // convenience
-   typedef Thread2Thread2::t2t_shared_ptr<MyMessage1> sp_t;
-   // etc
-};
-\endcode
- */
-template <class T>
-struct t2t2_shared_ptr {
-    /** constructor will ref() an obj passed to it, but can take NULL */
-    t2t2_shared_ptr<T>(T * _ptr = NULL);
-
-    /** copy constructor will copy the pointer in the other object and
-     * will ref() the pointer; If T and BaseT are not the same type,
-     * assumes the types are polymorphic, and will set this object
-     * to NULL (empty) if the dynamic_cast says it's not actually
-     * this derived type. */
-    template <class BaseT>
-    t2t2_shared_ptr<T>(const t2t2_shared_ptr<BaseT> &other);
-
-    /** move constructor will remove the pointer from the source but
-     * will not change the refcounter; this is useful for functions
-     * which return this as a return value. */
-    t2t2_shared_ptr<T>(t2t2_shared_ptr<T> &&other);
-
-    /** dereferences the contained pointer, if there is one, and if this
-     * is the last reference, the object is destroyed / returned
-     * to whatever pool it came from. */
-    ~t2t2_shared_ptr<T>(void);
-
-    /** overwrite a ptr in this obj with a new
-     * pointer, derefing the old ptr and refing
-     * the new pointer in the process. */
-    void reset(T * _ptr = NULL);
-
-    /** access the pointer within, same as -> or * */
-    T * get(void) const { return ptr; }
-
-    // the following two methods are public, but not documented,
-    // because they really should only be used internally.
-    void _give(T * _ptr);
-    T * _take(void);
-
-    /** just like std::shared_ptr, this returns the ref count
-     * of the contained object.
-     * \note if this shared ptr is currently empty, the return
-     *     value is 0, which would otherwise be impossible.
-     * \note this is only advisory! if this object is shared
-     *     amongst threads, the value could change. the only
-     *     value that's really useful is 1, meaning the calling
-     *     thread has the only reference (note that unique() is
-     *     exactly identical to (use_count() == 1). */
-    int use_count(void) const;
-
-    /** just like std::shared_ptr, this returns true if the
-     * ref count is exactly 1 (this is the only shared pointer
-     * referencing the contained object). */
-    bool unique(void) const;
-
-    /** assign, takes another ref() on the object,
-     * also does dynamic_cast.
-     * \note this can take a pointer to a base class and will
-     *    dynamic_cast to the derived type; assumes the types are
-     *    polymorphic, and will set this object to NULL (empty) if
-     *    the dynamic_cast says it's not actually this derived type. */
-    template <class BaseT>
-    t2t2_shared_ptr<T> &operator=(const t2t2_shared_ptr<BaseT> &other);
-
-    /** move, useful for zero copy return. */
-    t2t2_shared_ptr<T> &operator=(t2t2_shared_ptr<T> &&other);
-
-    /** useful for "if (sp)" to check if this obj has a pointer or not;
-     * this is exactly identical to (get() != NULL) */
-    operator bool() const { return (ptr != NULL); }
-
-    /** access the pointer using "obj->" */
-    T * operator->(void) const { return ptr; }
-
-    /** access the pointer using "*obj" */
-    T * operator*(void) const { return ptr; }
-
-private:
-    void ref(void);
-    void deref(void);
-    T * ptr;
 };
 
 //////////////////////////// T2T2_WAIT_FLAG ////////////////////////////
@@ -257,7 +162,7 @@ public:
      *   contained by this pool should be included in the derivedTs
      *   argument, to prevent that problem.) */
     template <class T, typename... ConstructorArgs>
-    bool alloc(t2t2_shared_ptr<T> * ptr, int wait_ms,
+    bool alloc(pxfe_shared_ptr<T> * ptr, int wait_ms,
                ConstructorArgs&&... args);
 
     __T2T2_EVIL_CONSTRUCTORS(t2t2_pool);
@@ -293,10 +198,10 @@ public:
      * \param msg  message to enqueue
      * \return true if success, false if not
      * \note   this does a take() on the shared_ptr, so the user's
-     *     t2t2_shared_ptr is now empty.
+     *     pxfe_shared_ptr is now empty.
      * \note   it is safe for multiple threads to enqueue messages
      *     to a single queue. that is an expected use case. */
-    template <class T> bool enqueue(t2t2_shared_ptr<T> &msg);
+    template <class T> bool enqueue(pxfe_shared_ptr<T> &msg);
 
     /** return true if this queue has no messages. */
     bool empty(void);
@@ -320,7 +225,7 @@ public:
      * \note do not call this dequeue method if this
      *       queue has been added to a t2t2_queue_set. that will throw
      *       an assertion. */
-    t2t2_shared_ptr<BaseT>  dequeue(int wait_ms);
+    pxfe_shared_ptr<BaseT>  dequeue(int wait_ms);
 
     __T2T2_EVIL_CONSTRUCTORS(t2t2_queue<BaseT>);
     __T2T2_EVIL_NEW(t2t2_queue<BaseT>);
@@ -407,7 +312,7 @@ public:
      *       calling dequeue on different sets is fine.
      * \note it is NOT safe to call an individual queue's dequeue
      *       method if that queue has been added to a set. */
-    t2t2_shared_ptr<BaseT> dequeue(int wait_ms, int *id = NULL);
+    pxfe_shared_ptr<BaseT> dequeue(int wait_ms, int *id = NULL);
 };
 
 //////////////////////////// T2T2_MESSAGE_BASE ////////////////////////////
@@ -415,13 +320,14 @@ public:
 /** base class for all T2T2 messages.
  * \param BaseT      the derived data type's base class name. */
 template <class BaseT>
-class t2t2_message_base
+class t2t2_message_base : public pxfe_shared_ptr_base
 {
-protected:
-    t2t2_message_base(void) : __refcount(0) { }
-    virtual ~t2t2_message_base(void) { }
-    // users don't delete; users should be using t2t2_shared_ptr.
+public:
+    // users don't delete; users should be using pxfe_shared_ptr.
     static void operator delete(void *ptr);
+protected:
+    t2t2_message_base(void) { }
+    virtual ~t2t2_message_base(void) { }
 
 private:
     __t2t2_pool * __pool;
@@ -436,10 +342,6 @@ private:
     // t2t2_pool.alloc is what invokes new().
     template <class poolBaseT,
               class... poolDerivedTs> friend class t2t2_pool;
-
-    std::atomic_int  __refcount;
-    // t2t2_shared_ptr needs to access __refcount
-    template <class sharedPtrBaseT> friend class t2t2_shared_ptr;
 
     __T2T2_EVIL_CONSTRUCTORS(t2t2_message_base);
     __T2T2_EVIL_NEW(t2t2_message_base);
@@ -467,7 +369,7 @@ std::ostream &operator<<(std::ostream &strm,
 Classes of interest provided by this library:
  <ul>
  <li> \ref Thread2Thread2::t2t2_message_base
- <li> \ref Thread2Thread2::t2t2_shared_ptr
+ <li> \ref Thread2Thread2::pxfe_shared_ptr
  <li> \ref Thread2Thread2::wait_flag
  <li> \ref Thread2Thread2::t2t2_pool
     <ul>
@@ -566,7 +468,7 @@ public:
    // recommend defining some "convenience" typedefs here, such as:
    typedef Thread2Thread2::t2t2_queue<MY_MSG_BASE> queue_t;
    typedef Thread2Thread2::t2t2_queue_set<MY_MSG_BASE> queue_set_t;
-   typedef Thread2Thread2::t2t2_shared_ptr<MY_MSG_BASE> sp_t;
+   typedef Thread2Thread2::pxfe_shared_ptr<MY_MSG_BASE> sp_t;
 
    MY_MSG_BASE( <constructor args here> );
    MY_MSG_BASE( <optional constructor overloading is supported> );
@@ -584,7 +486,7 @@ class MY_MSG_DERIVED_TYPE1 : public MY_MSG_BASE
 {
 public:
    // recommend defining some "convenience" typedefs here, such as:
-   typedef Thread2Thread2::t2t2_shared_ptr<MY_MSG_DERIVED_TYPE1> sp_t;
+   typedef Thread2Thread2::pxfe_shared_ptr<MY_MSG_DERIVED_TYPE1> sp_t;
    // optionally define a pool which contains buffers big enough
    // only for this one message type.
    typedef Thread2Thread2::t2t2_pool<MY_MSG_BASE,
@@ -599,7 +501,7 @@ public:
 class MY_MSG_DERIVED_TYPE2 : public MY_MSG_BASE
 {
    // recommend defining some "convenience" typedefs here, such as:
-   typedef Thread2Thread2::t2t2_shared_ptr<MY_MSG_DERIVED_TYPE2> sp_t;
+   typedef Thread2Thread2::pxfe_shared_ptr<MY_MSG_DERIVED_TYPE2> sp_t;
 
    MY_MSG_DERIVED_TYPE2( <constructor args> );
    virtual ~MY_MSG_DERIVED_TYPE2(void);
@@ -641,7 +543,7 @@ Thread2Thread2::t2t2_pool<MY_MSG_BASE,
         from that class, but the dequeue() method of the queue will
         return a shared pointer of the base class, and it is up to the
         user to use the casting constructor or casting assignment
-        operator of t2t2_shared_ptr to get to the derived type.
+        operator of pxfe_shared_ptr to get to the derived type.
 
 \code
 Thread2Thread2::t2t2_queue<MY_MSG_BASE>  my_msg_queue(
@@ -688,7 +590,7 @@ public:
     typedef t2t2::t2t2_pool      <my_message_base> pool_t;
     typedef t2t2::t2t2_queue     <my_message_base> queue_t;
     typedef t2t2::t2t2_queue_set <my_message_base> queue_set_t;
-    typedef t2t2::t2t2_shared_ptr<my_message_base> sp_t;
+    typedef t2t2::pxfe_shared_ptr<my_message_base> sp_t;
 
     <your message contents here>
 
@@ -709,7 +611,7 @@ public:
     // convenience
     typedef t2t2::t2t2_pool<my_message_base,
                           my_message_derived1> pool1_t;
-    typedef t2t2::t2t2_shared_ptr<my_message_derived1> sp_t;
+    typedef t2t2::pxfe_shared_ptr<my_message_derived1> sp_t;
 
     <your message contents here>
 
@@ -730,7 +632,7 @@ public:
     // convenience
     typedef t2t2::t2t2_pool<my_message_base,
                           my_message_derived2> pool2_t;
-    typedef t2t2::t2t2_shared_ptr<my_message_derived2> sp_t;
+    typedef t2t2::pxfe_shared_ptr<my_message_derived2> sp_t;
 
     <your message contents here>
 
@@ -755,7 +657,7 @@ public:
 \subsection sharedptr Shared Pointers
 
 Some of the functions below return a
-\ref Thread2Thread2::t2t2_shared_ptr
+\ref Thread2Thread2::pxfe_shared_ptr
 which automatically manages reference counts in the returned
 message. The user may assign to another shared_ptr or keep
 this shared pointer as long as wanted.  Just like std::shared_ptr,
@@ -829,9 +731,9 @@ Once it has allocated a buffer and filled it out, it enqueues it using
         printf("ALLOC FAILED\n");
 \endcode
 
-\note the "sp_t" type is a shortcut typedef for t2t2_shared_ptr defined
+\note the "sp_t" type is a shortcut typedef for pxfe_shared_ptr defined
    above.  also note the enqueue "takes" the value out of the
-   t2t2_shared_ptr, so the "spmb" is now empty (NULL).
+   pxfe_shared_ptr, so the "spmb" is now empty (NULL).
 
 \note we are allocating a "my_message_base" from the pool declared
    under "my_message_derived1". that pool has buffers big enough for
@@ -874,7 +776,7 @@ The recipient thread then dequeues from these queues using
 \ref Thread2Thread2::t2t2_queue_set::dequeue
 to process the messages in its own time.
 
-\ref Thread2Thread2::t2t2_shared_ptr has a helpful facility for
+\ref Thread2Thread2::pxfe_shared_ptr has a helpful facility for
 converting between message types. It has a copy-constructor which
 invokes dynamic_cast and attempts to convert from the base class to
 the derived class, and it also has a casting assignment operator which

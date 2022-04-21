@@ -8,7 +8,7 @@ using namespace std;
 
 // neat, but not using them just now:
 //template <class... T> using t2mb = t2t2::t2t2_message_base<T...>;
-//template <class    T> using t2sp = t2t2::t2t2_shared_ptr  <T>;
+//template <class    T> using t2sp = pxfe_shared_ptr  <T>;
 namespace t2t2 = Thread2Thread2;
 
 class my_message_base : public t2t2::t2t2_message_base<my_message_base>
@@ -17,7 +17,7 @@ public:
     // convenience
     typedef t2t2::t2t2_queue<my_message_base> queue_t;
     typedef t2t2::t2t2_queue_set<my_message_base> queue_set_t;
-    typedef t2t2::t2t2_shared_ptr<my_message_base> sp_t;
+    typedef pxfe_shared_ptr<my_message_base> sp_t;
 
     enum msgtype { TYPE_B, TYPE_D1, TYPE_D2 } type;
     int a;
@@ -48,7 +48,7 @@ class my_data : public t2t2::t2t2_message_base<my_data>
 public:
     // convenience
     typedef t2t2::t2t2_pool<my_data> pool_t;
-    typedef t2t2::t2t2_shared_ptr<my_data> sp_t;
+    typedef pxfe_shared_ptr<my_data> sp_t;
 
     int len;
     char buf[1000];
@@ -70,7 +70,7 @@ public:
     // convenience
     typedef t2t2::t2t2_pool<my_message_base,
                           my_message_derived1> pool1_t;
-    typedef t2t2::t2t2_shared_ptr<my_message_derived1> sp_t;
+    typedef pxfe_shared_ptr<my_message_derived1> sp_t;
 
     int c;
     int d;
@@ -99,7 +99,7 @@ public:
     // convenience
     typedef t2t2::t2t2_pool<my_message_base,
                           my_message_derived2> pool2_t;
-    typedef t2t2::t2t2_shared_ptr<my_message_derived2> sp_t;
+    typedef pxfe_shared_ptr<my_message_derived2> sp_t;
 
     // test hack: if e==-1, that tells recipient to exit.
     int e;

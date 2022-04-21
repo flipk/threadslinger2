@@ -59,119 +59,6 @@ struct largest_type<BaseT, T, U, Ts...>
     static const int size = sizeof(type);
 };
 
-//////////////////////////// T2T2_SHARED_PTR ////////////////////////////
-
-template<class T>
-t2t2_shared_ptr<T> :: t2t2_shared_ptr(T * _ptr /*= NULL*/)
-    : ptr(NULL)
-{
-    ptr = _ptr;
-    ref();
-}
-
-template <class T>
-template <class BaseT>
-t2t2_shared_ptr<T> :: t2t2_shared_ptr(const t2t2_shared_ptr<BaseT> &other)
-{
-    ptr = dynamic_cast<T*>(*other);
-    ref();
-}
-
-template<class T>
-t2t2_shared_ptr<T> :: t2t2_shared_ptr(t2t2_shared_ptr<T> &&other)
-{
-    ptr = other.ptr;
-    other.ptr = NULL;
-}
-
-template<class T>
-t2t2_shared_ptr<T> :: ~t2t2_shared_ptr(void)
-{
-    deref();
-}
-
-template<class T>
-void t2t2_shared_ptr<T> :: reset(T * _ptr /*= NULL*/)
-{
-    deref();
-    ptr = _ptr;
-    ref();
-}
-
-template<class T>
-void t2t2_shared_ptr<T> :: _give(T * _ptr)
-{
-    deref();
-    ptr = _ptr;
-    // the caller is passing ownership to us,
-    // presumably they had a refcount,
-    // which they are giving to us,
-    // so don't modify the refcount here.
-}
-
-template<class T>
-T * t2t2_shared_ptr<T> :: _take(void)
-{
-    T * ret = ptr;
-    // we are letting the caller take ownership from us,
-    // so the refcount we have is being given to them,
-    // so don't modify the refcount here.
-    ptr = NULL;
-    return ret;
-}
-
-template<class T>
-template <class BaseT>
-t2t2_shared_ptr<T> &
-t2t2_shared_ptr<T> :: operator=(const t2t2_shared_ptr<BaseT> &other)
-{
-    deref();
-    ptr = dynamic_cast<T*>(*other);
-    ref();
-    return *this;
-}
-
-template<class T>
-t2t2_shared_ptr<T> &
-t2t2_shared_ptr<T> :: operator=(t2t2_shared_ptr<T> &&other)
-{
-    deref();
-    ptr = other.ptr;
-    other.ptr = NULL;
-    return *this;
-}
-
-template<class T>
-void t2t2_shared_ptr<T> :: ref(void)
-{
-    if (ptr)
-        ptr->__refcount++;
-}
-
-template<class T>
-int t2t2_shared_ptr<T> :: use_count(void) const
-{
-    if (ptr)
-        return std::atomic_load(&ptr->__refcount);
-    return 0;
-}
-
-template<class T>
-bool t2t2_shared_ptr<T> :: unique(void) const
-{
-    return use_count() == 1;
-}
-
-template<class T>
-void t2t2_shared_ptr<T> :: deref(void)
-{
-    if (ptr && (ptr->__refcount-- <= 1))
-    {
-        delete ptr;
-        ptr = NULL;
-    }
-}
-
 //////////////////////////// ERROR HANDLING ////////////////////////////
 
 #define __T2T2_ASSERT(err,fatal) \
@@ -458,7 +345,7 @@ public:
 template <class BaseT, class... derivedTs>
 template <class T, typename... ConstructorArgs>
 bool t2t2_pool<BaseT,derivedTs...> :: alloc(
-    t2t2_shared_ptr<T> * ptr, int wait_ms,
+    pxfe_shared_ptr<T> * ptr, int wait_ms,
     ConstructorArgs&&... args)
 {
     static_assert(std::is_base_of<t2t2_message_base<BaseT>,
@@ -487,7 +374,7 @@ t2t2_queue<BaseT> :: t2t2_queue(pthread_mutexattr_t *pmattr /*= NULL*/,
 
 template <class BaseT>
 template <class T>
-bool t2t2_queue<BaseT> :: enqueue(t2t2_shared_ptr<T> &_msg)
+bool t2t2_queue<BaseT> :: enqueue(pxfe_shared_ptr<T> &_msg)
 {
     bool ret = false;
     static_assert(std::is_base_of<BaseT, T>::value == true,
@@ -516,9 +403,9 @@ bool t2t2_queue<BaseT> :: empty(void)
 }
 
 template <class BaseT>
-t2t2_shared_ptr<BaseT>   t2t2_queue<BaseT> :: dequeue(int wait_ms)
+pxfe_shared_ptr<BaseT>   t2t2_queue<BaseT> :: dequeue(int wait_ms)
 {
-    t2t2_shared_ptr<BaseT>  ret;
+    pxfe_shared_ptr<BaseT>  ret;
     __t2t2_buffer_hdr * h = q._dequeue(wait_ms);
     if (h)
     {
@@ -558,10 +445,10 @@ void t2t2_queue_set<BaseT> :: remove_queue(t2t2_queue<BaseT> *q)
 }
 
 template <class BaseT>
-t2t2_shared_ptr<BaseT> t2t2_queue_set<BaseT> :: dequeue(int wait_ms,
+pxfe_shared_ptr<BaseT> t2t2_queue_set<BaseT> :: dequeue(int wait_ms,
                                                       int *id /*= NULL*/)
 {
-    t2t2_shared_ptr<BaseT>  ret;
+    pxfe_shared_ptr<BaseT>  ret;
     // __t2t2_queue_set does its own locking.
     __t2t2_buffer_hdr * h = qs._dequeue(wait_ms,id);
     if (h)
